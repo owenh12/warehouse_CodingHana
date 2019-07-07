@@ -1,5 +1,20 @@
+깃헙 사용법 (출처 : https://shxrecord.tistory.com/116)
+
 cd desktop
 cd Python_codinghana
 cd git
 cd warehouse_codingHana
 git status
+
+깃 커밋할 준비
+git add * 
+또는 git add 파일명
+
+커밋
+git commit
+*please tell me who you are 에러뜰경우(git 사용하려면 이름과 이메일주소정보가 필요해서 뜨는 에러임. ->사용자정보 추가필요)
+git config user.name 이름
+git config user.email 이메일
+
+git push
+로그인 팝업뜨면 깃헙 아이디/패스워드 입력하면됨
