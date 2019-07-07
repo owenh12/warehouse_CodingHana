@@ -1,0 +1,5 @@
+cd desktop
+cd Python_codinghana
+cd git
+cd warehouse_codingHana
+git status
