@@ -1,0 +1,35 @@
+# 모의투자·실거래 실행 설정 (전략·비용·리스크는 다른 파일과 공유)
+mode: paper                     # paper: PaperBroker | live: KISBroker·CcxtBroker
+live_confirm: false             # mode: live 는 이 값이 true일 때만 허용 (실수로 실거래 전환 방지)
+
+scheduler:
+  bar_close_delay_sec:          # 15분봉 마감 후 대기 (거래소·증권사 봉 확정 지연 흡수)
+    stock_kr: 20
+    crypto: 5
+  stock_kr_calendar: XKRX       # 장 운영시간·휴장일 반영
+
+orders:
+  unfilled_timeout_sec: 60      # 미체결 타임아웃
+  max_retries: 3
+  retry_backoff_sec: [2, 4, 8]
+  partial_fill: resize_protective   # 부분체결 수량 기준으로 손절·익절 재설정, 잔량은 타임아웃 시 취소
+  stop_execution:
+    stock_kr: client_monitor    # KIS 국내주식은 서버측 스탑 주문 미지원 가정 → 실시간 시세 감시 후 시장가
+    crypto: exchange_native     # 바이낸스 STOP_LOSS(현물) / STOP_MARKET(선물)
+  stop_monitor_interval_sec: 2
+
+notifications:
+  channels: [telegram]          # telegram | slack (복수 선택 가능)
+  events: [signal, fill, error, risk_event, daily_report]
+  daily_report:
+    time: "08:00"
+    timezone: Asia/Seoul
+
+logging:
+  format: json
+  level: INFO
+  redact_keys: [appkey, appsecret, secret, token, api_key, apikey, authorization, signature]
+
+paper:
+  min_duration_weeks: 4
+  fill_model: backtest_rules    # 백테스트와 동일한 체결 규칙으로 가상 체결

@@ -1,0 +1,48 @@
+# 거래비용 — 백테스트 · 모의투자 · 실거래가 모두 이 파일 하나를 사용한다.
+
+stock_kr:                       # 한국투자증권 BanKIS 온라인 계좌, KRX 체결 기준
+  commission:
+    rate: 0.000140527           # 매수·매도 각각 0.0140527% (유관기관제비용 포함)
+    rounding: floor_krw         # 원 미만 절사
+    verify_with_broker: true    # Open API 주문에 동일 요율이 적용되는지 계좌 조건 확인 전까지 경고 로그
+  sell_tax:                     # 증권거래세 + 농어촌특별세 (코스피, 매도 시에만)
+    rounding: floor_krw
+    schedule:                   # effective_from 이후 매도분에 적용 (여러 줄이면 시점별 적용)
+      - {effective_from: 2000-01-01, rate: 0.0020}
+      # 과거 실제 세율로 백테스트하려면 아래처럼 교체:
+      # - {effective_from: 2025-01-01, rate: 0.0015}   # 2025년: 거래세 0% + 농특세 0.15%
+      # - {effective_from: 2026-01-01, rate: 0.0020}   # 2026년: 거래세 0.05% + 농특세 0.15%
+  slippage:
+    market_ticks: 1             # 시장가·스탑시장가 체결 시 불리한 방향 1호가
+    limit_ticks: 0
+
+crypto:                         # 바이낸스, 일반 사용자
+  vip_level: 0
+  spot:
+    maker: 0.0010
+    taker: 0.0010
+    bnb_discount: {enabled: false, rate: 0.25}
+  usdm_futures:
+    maker: 0.0002
+    taker: 0.0005
+    bnb_discount: {enabled: false, rate: 0.10}
+    fee_basis: notional         # 증거금이 아닌 포지션 명목가치 기준
+    funding:
+      enabled: true
+      source: historical        # 과거 펀딩비 이력 수집
+      # 정산 시각 T에 보유 판정: entry_time < T <= exit_time
+      # (봉 시가 진입은 T 직후 체결로, 봉 시가 청산은 T 직후 체결로 간주)
+      # 롱 보유 중 양(+) 펀딩비 = 비용, 음(-) 펀딩비 = 수익
+  slippage:
+    taker_pct: 0.0002           # 테이커 체결 시 0.02%
+    maker_pct: 0.0
+
+order_liquidity:                # 주문 유형 → 메이커/테이커 구분
+  market: taker
+  stop_market: taker            # 손절·트레일링 스탑
+  limit_resting: maker          # 호가창에 대기 후 체결된 지정가 (익절 목표가)
+  limit_marketable: taker       # 즉시 체결되는 지정가
+
+scenarios:
+  slippage_multipliers: [0, 1, 2]   # 슬리피지 민감도 분석
+  include_gross: true               # 비용 반영 전 성과를 나란히 보고

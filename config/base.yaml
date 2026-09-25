@@ -1,0 +1,19 @@
+# 프로젝트 공통 설정: 기준통화, 초기 자본, 자산군 배분, 저장 경로
+project:
+  name: rsi-bullish-divergence
+  base_currency: USD            # 성과 계산 기준통화
+  storage_timezone: UTC         # 모든 타임스탬프는 UTC로 저장
+  display_timezone: Asia/Seoul  # 표시(리포트·알림·차트)할 때만 KST로 변환
+
+capital:
+  initial: 1000.0               # 기준통화(USD) 초기 자본
+  allocation:                   # 자산군별 배분 비율 (합계 1.0)
+    stock_kr: 0.5               # 국내 주식(KRW 계좌) → 시작일 환율로 KRW 환산
+    crypto: 0.5                 # 가상화폐(USDT 계좌)
+  sleeve_mode: isolated         # 자산군 간 자본 이동 없음 (증권사·거래소 계좌가 분리되어 있으므로)
+
+paths:                          # 모두 .gitignore 대상
+  cache_dir: storage/cache      # Parquet 데이터 캐시
+  state_dir: storage/state      # SQLite 상태 DB (모의·실거래)
+  log_dir: storage/logs         # JSON 구조화 로그
+  report_dir: storage/reports   # 백테스트·최적화 리포트, 차트, CSV

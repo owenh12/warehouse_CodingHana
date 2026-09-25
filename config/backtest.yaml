@@ -1,0 +1,27 @@
+# 백테스트 엔진 설정 (이벤트 기반 bar-by-bar 직접 구현)
+fill:
+  entry_price: next_open            # 신호 봉(t3+R) 종가 확정 후 다음 봉 시가
+  same_bar_stop_and_target: stop_first   # 같은 봉에서 손절·익절 모두 닿으면 손절 우선 (보수적)
+  gap_through_stop: fill_at_open    # 시가가 손절가보다 불리하게 갭 → 시가 체결
+  limit_fill_rule: touch            # touch: 고가 ≥ 목표가면 체결 | through: 1틱 이상 넘어서야 체결 (보수적)
+  trailing_update: on_bar_close     # 트레일링 기준 고점은 봉 마감 후 갱신 → 다음 봉부터 적용
+
+risk_rules_variants:                # 실거래 리스크 규칙(risk.yaml) 적용 / 미적용 비교
+  - with_live_rules
+  - without_live_rules
+
+benchmarks:                         # Buy & Hold 비교 대상
+  stock_kr: kospi200_index          # kospi200_index | equal_weight_members
+  crypto: equal_weight_symbols
+  portfolio: allocation_weighted
+
+metrics:
+  risk_free_rate: 0.0
+  return_frequency: daily           # 샤프·소르티노 등은 일별 수익률로 산출 (기준통화 USD)
+
+outputs:
+  trades_csv: true                  # 신호 시점, t1/p2/t3 시각·값, 진입·청산 가격, 사유, 손익
+  signals_csv: true                 # 진입 여부와 무관한 전체 신호 (스킵 사유 포함)
+  equity_csv: true
+  charts: [equity, drawdown, signal_samples]
+  signal_sample_count: 30

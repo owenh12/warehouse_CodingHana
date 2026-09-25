@@ -1,0 +1,97 @@
+# RSI 강세 다이버전스(Regular Bullish Divergence) 전략 파라미터
+#
+# 정의: 저점 t1 → 고점 p2 → 저점 t3 순서에서
+#   가격 조건  Low(t3) < Low(t1)
+#   RSI 조건   RSI(t3) > RSI(t1)
+#   구조 조건  t1 < p2 < t3, High(p2) > Low(t1), High(p2) > Low(t3)
+# 신호 시점 = t3 + right 봉의 종가 확정 시점 (그 전에는 t3 피벗을 알 수 없음)
+#
+# default 는 모든 자산군 공통. 자산군별로 다르게 쓸 값만 overrides 에 부분 기재한다.
+# (여러 자산군에 동일 파라미터를 적용해 비교하는 것이 기본이므로 overrides 는 비워 둔다)
+
+default:
+  rsi:
+    period: 14
+    method: wilder              # Wilder 평활 (첫 평균은 SMA, 이후 (prev*(n-1)+x)/n)
+    source: close
+
+  pivot:
+    left: 5                     # L: 좌측 비교 봉 수
+    right: 3                    # R: 우측 비교 봉 수 = 피벗 확정 지연
+    price_source: low           # low | close : 피벗 판별과 가격 비교 기준
+    strict: true                # true: 좌우 모든 봉보다 '엄격히' 낮아야(높아야) 피벗. 동일값이면 피벗 아님
+
+  divergence:
+    t1_selection: previous_pivot  # previous_pivot: t3 직전 피벗 저점 하나와만 비교
+                                  # scan_window: 간격 범위 내 피벗 저점 중 조건을 모두 만족하는 가장 최근 것
+    p2_selection: highest_pivot   # highest_pivot: t1~t3 사이 피벗 고점 중 최고가 (없으면 신호 없음)
+                                  # max_high: t1~t3 사이 최고가 봉 (피벗 여부 무관)
+
+  filters:
+    gap_bars:                   # t1과 t3 사이 간격 (봉 수)
+      enabled: true
+      min_bars: 5
+      max_bars: 60
+    rsi_t1_oversold:            # RSI(t1) < threshold
+      enabled: true
+      threshold: 30.0
+    rsi_diff_min:               # RSI(t3) - RSI(t1) >= min_diff
+      enabled: true
+      min_diff: 2.0
+    price_drop_min:             # (Low(t1) - Low(t3)) / Low(t1) >= min_pct
+      enabled: true
+      min_pct: 0.001            # 0.1%
+    no_lower_low_between:       # t1~t3 사이에 Low(t3)보다 낮은 저점이 있으면 무효
+      enabled: true
+    trend:                      # 추세 필터 (상위 타임프레임 또는 장기 이동평균)
+      enabled: false
+      mode: htf_ma              # htf_ma: 상위 TF 이평 | ltf_ma: 15분봉 장기 이평
+      htf: 4h                   # 신호 시점에 '이미 마감된' 4시간봉만 사용 (미래참조 방지)
+      ma_type: ema              # sma | ema
+      ma_period: 50             # ltf_ma 모드에서는 15분봉 기준 기간 (예: 200)
+      condition: close_above    # close_above | slope_up | close_above_and_slope_up
+    volume:                     # t3 구간 거래량 조건
+      enabled: false
+      mode: t3_vs_average       # t3_vs_average: 구간 평균 / 직전 lookback 평균 | t3_vs_t1: t3 구간 / t1 구간
+      bars_before: 1            # t3 포함 좌측 봉 수
+      bars_after: 0             # 우측 봉 수 (≤ pivot.right 강제: 신호 시점 이후 데이터 사용 금지)
+      lookback: 20
+      min_ratio: 1.2
+    session_kr:                 # 국내 주식 전용 (가상화폐에는 적용되지 않음)
+      enabled: true
+      exclude_first_bars: 2     # 장 시작 직후 N봉 (09:00, 09:15)
+      exclude_last_bars: 2      # 장 마감 직전 N봉 (15:00, 15:15)
+      exclude_auction_bars: true  # 동시호가 포함 봉 (15:15 봉)
+      applies_to: signal_bar    # signal_bar(t3+R 봉) | t3_bar | both
+
+  entry:
+    mode: A                     # A: 확정 즉시 다음 봉 시가
+                                # B: 확정 후 N봉 이내 종가 > 직전 봉 고가 → 다음 봉 시가
+                                # C: 확정 후 N봉 이내 RSI가 기준값 상향 돌파 → 다음 봉 시가
+    confirm_window_bars: 3      # B, C의 N
+    rsi_cross_level: 30.0       # C의 기준값
+    cancel_if_below_stop: true  # B, C 대기 중 손절가 이탈 시 신호 취소
+    order_type: market          # market | limit (limit: 신호 봉 종가 지정가, 다음 봉에서 미체결 시 취소)
+
+  exit:
+    stop:
+      mode: atr                 # atr: Low(t3) - ATR*atr_mult | pct: Low(t3) * (1 - pct)
+      atr_period: 14            # 신호 봉 시점의 ATR 사용
+      atr_mult: 1.0
+      pct: 0.005
+    take_profit:
+      mode: r_multiple          # p2 | r_multiple | trailing | none
+      r_multiple: 2.0           # 1.5 / 2.0 / 3.0 (손절폭 대비)
+      trailing_atr_period: 14
+      trailing_atr_mult: 3.0    # 진입 후 최고가 - ATR*mult (봉 마감 후 갱신)
+      p2_below_entry: skip      # p2 목표가 ≤ 진입 예정가: skip(진입 안 함) | fallback_r_multiple
+    time_exit:
+      enabled: true
+      max_bars: 32              # M: 진입 후 M봉 내 목표 미도달 시 다음 봉 시가 청산
+    overnight_kr:
+      hold_overnight: false     # false: 장 마감 N분 전 전량 청산, 그 이후 신규 진입 금지
+      flatten_minutes_before_close: 30
+
+overrides:
+  stock_kr: {}
+  crypto: {}

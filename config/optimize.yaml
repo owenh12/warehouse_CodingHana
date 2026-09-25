@@ -1,0 +1,41 @@
+# 파라미터 검증 (과최적화 방지)
+method: optuna                  # optuna | grid
+n_trials: 200
+seed: 42
+
+objective:
+  metric: expectancy_r          # 기대값(R) — 거래 수가 적으면 샤프·CAGR보다 안정적
+  min_trades: 30                # 미달 시 해당 시도는 페널티(무효) 처리
+  report_also: [calmar, sharpe, profit_factor]
+
+search_space:                   # 키는 strategy.yaml default 기준 경로
+  pivot.left: {type: int, low: 3, high: 8}
+  pivot.right: {type: int, low: 2, high: 5}
+  rsi.period: {type: categorical, choices: [9, 14, 21]}
+  filters.rsi_t1_oversold.threshold: {type: float, low: 25.0, high: 40.0, step: 5.0}
+  filters.rsi_diff_min.min_diff: {type: float, low: 0.0, high: 6.0, step: 1.0}
+  exit.stop.atr_mult: {type: float, low: 0.5, high: 2.0, step: 0.25}
+  exit.take_profit.r_multiple: {type: categorical, choices: [1.5, 2.0, 3.0]}
+  exit.time_exit.max_bars: {type: int, low: 16, high: 64, step: 8}
+
+walk_forward:
+  train: 12M                    # 학습 1년
+  test: 6M                      # 검증 6개월
+  step: 6M                      # 롤링 간격
+  anchored: false               # false: 롤링 윈도 | true: 시작점 고정 확장 윈도
+
+stability:                      # 파라미터 안정성 히트맵
+  heatmap_pairs:
+    - [pivot.left, pivot.right]
+    - [exit.stop.atr_mult, exit.take_profit.r_multiple]
+  neighborhood_tolerance: 0.2   # 최적값 이웃의 성과 하락이 20% 이내인지 점검
+
+monte_carlo:
+  n_sims: 1000
+  method: shuffle               # shuffle: 거래 순서 섞기 | bootstrap: 복원추출
+  kill_switch_drawdown: 0.30    # 이 MDD 도달 확률 산출
+  seed: 42
+
+cross_asset:
+  report_per_symbol: true       # 동일 파라미터의 종목별 성과 분포
+  report_per_asset_class: true

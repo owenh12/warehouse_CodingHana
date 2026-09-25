@@ -1,0 +1,40 @@
+# 포지션 사이징과 리스크 관리 — 실거래 규칙이며, 백테스트에도 동일 코드로 적용(on/off 비교)
+
+sizing:
+  risk_per_trade: 0.01          # 1회 거래당 해당 자산군 배분 자본의 1%
+  capital_base: sleeve_equity   # sleeve_equity: 자산군 현재 평가금액 | sleeve_initial: 최초 배분액 고정
+  reference_price: signal_close # 수량 계산 기준가 = 신호 봉 종가 (주문 시점에 알 수 있는 값만 사용)
+  include_costs_in_risk: true   # 1R에 예상 수수료·세금·슬리피지 포함
+  on_below_min: skip            # 최소 주문단위·금액 미만 → 진입 안 함, '자본 부족 스킵'으로 기록
+  on_cap_exceeded: cap          # 비중 상한·가용현금 초과: cap(수량 축소 후 진입) | skip
+
+limits:                         # 자산군별 동시 보유 종목 수 · 종목당 최대 비중 (자산군 평가금액 대비)
+  stock_kr: {max_positions: 3, max_weight: 0.34}
+  crypto: {max_positions: 2, max_weight: 0.50}
+  one_position_per_symbol: true # 동일 종목 보유 중 추가 신호는 무시
+
+daily_loss:                     # 일일 최대 손실 → 당일 신규 진입 중단
+  enabled: true
+  threshold: 0.03
+  basis: day_start_equity       # 당일 시작 시점 계좌 평가금액 대비 (실현 + 미실현 손익)
+  scope: per_account            # 자산군 계좌별로 판정 (리셋 시각이 서로 다름)
+  keep_protective_orders: true  # 기존 포지션의 손절·익절은 유지
+  reset:
+    stock_kr: {type: market_open}
+    crypto: {type: clock, time: "00:00", timezone: Asia/Seoul}
+
+kill_switch:                    # 누적 MDD → 전체 중단
+  enabled: true
+  max_drawdown: 0.30
+  basis: peak_equity_since_start  # 운용 시작 이후 계좌 평가금액 최고점 대비
+  scope: portfolio_usd          # portfolio_usd: 합산(USD) 기준 | per_account: 어느 한 계좌라도 도달 시
+  on_trip: keep_stops           # flatten_all: 즉시 전량 청산 | keep_stops: 기존 손절 주문만 유지
+  auto_resume: false            # 자동 재개 금지 (true로 설정하면 설정 검증 단계에서 오류)
+  release_ack: null             # 수동 해제: 발동 시 로그·알림에 기록된 trip_id를 입력해야 재가동
+
+api_errors:                     # API 오류 연속 N회 → 거래 중단 + 알림
+  enabled: true
+  max_consecutive: 5
+  reset_on_success: true        # 성공 호출 1회로 카운트 초기화
+  record_open_orders: true      # 중단 시 미체결 주문 상태를 조회·기록한 뒤 알림
+  release_ack: null             # 수동 해제 (kill_switch와 동일 방식)

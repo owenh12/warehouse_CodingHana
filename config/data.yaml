@@ -1,0 +1,42 @@
+# 데이터 계층 설정
+timeframe: 15m                  # 전략 타임프레임
+
+backtest_period:
+  start: 2025-01-01
+  end: null                     # null = 실행 시점의 마지막 확정 봉
+  # ※ 2단계 데이터 점검에서 자산별 실제 확보 가능 기간을 보고한 뒤 확정한다.
+
+providers:
+  kis:
+    env: real                   # real | virtual (과거 분봉 조회가 모의 도메인에서 되는지 2단계에서 확인)
+    base_url:
+      real: https://openapi.koreainvestment.com:9443
+      virtual: https://openapivts.koreainvestment.com:29443
+    max_requests_per_sec:       # 공식 한도보다 낮게 설정 (안전 마진)
+      real: 15
+      virtual: 2
+    market_division: J          # J = KRX
+    source_timeframe: 1m        # KIS 분봉(1분) → 15분봉 리샘플
+    adjust_prices: true         # 액면분할·병합: 일봉 수정주가/원주가 비율로 분봉 보정
+  ccxt:
+    exchange_id: binance
+    enable_rate_limit: true
+    source_timeframe: 15m       # 바이낸스는 15m 네이티브 제공 (1m 리샘플과 교차검증 가능)
+    bulk_download: true         # 대량 과거 구간은 data.binance.vision 월별 파일 우선 사용
+
+fx:
+  pair: USD/KRW
+  source: fred                  # fred(DEXKOUS) | ecos(한국은행) | yfinance
+  fred_series: DEXKOUS
+  fill_method: ffill            # 미국·한국 휴일 결측은 직전 값으로 채움
+  usdt_per_usd: 1.0             # 가정: USDT = USD 1:1
+
+quality:
+  intraday_missing_bar: ffill_flat   # 장중 무체결 봉: 직전 종가로 OHLC 채우고 거래량 0 | keep_gap
+  halted_day: skip                   # 거래정지일: 봉 생성 안 함, 해당 구간 신호 없음
+  max_consecutive_missing_warn: 4    # 연속 결측 봉이 이보다 많으면 경고 로그
+  dividend_handling: ignore          # ignore | cashflow (배당락 갭은 수정주가에 반영되지 않음)
+
+cache:
+  compression: zstd
+  refresh_recent_days: 3        # 최근 N일 파티션만 재다운로드 (확정 전 데이터 교정 대비)

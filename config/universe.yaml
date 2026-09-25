@@ -1,0 +1,22 @@
+# 거래 대상 유니버스
+stock_kr:
+  enabled: true
+  venue: KRX                    # KRX 체결 기준 (NXT 대체거래소 시세·체결은 사용하지 않음)
+  provider: kis
+  account_currency: KRW
+  index: KOSPI200
+  index_code: "1028"            # KRX 지수코드
+  membership:
+    point_in_time: true         # 특정 시점에 실제 편입된 종목만 신호 대상 (구성종목 변경 이력 반영)
+    source: krx                 # 시점별 구성종목 이력 소스 (2단계에서 확보 가능 여부 점검)
+    include_delisted: true      # 생존편향 방지: 상장폐지·편출 종목도 편입 기간 동안 포함 (데이터 확보 시)
+  include_symbols: []           # 비어 있지 않으면 지수 구성종목 대신 이 목록만 사용 (디버깅용)
+  exclude_symbols: []
+
+crypto:
+  enabled: true
+  venue: binance
+  provider: ccxt
+  account_currency: USDT        # USDT는 data.yaml의 fx.usdt_per_usd 비율로 USD 환산
+  market_type: spot             # spot | usdm_futures (선물 선택 시 펀딩비·명목가치 수수료 반영)
+  symbols: [BTC/USDT, ETH/USDT]

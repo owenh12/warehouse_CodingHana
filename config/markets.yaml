@@ -1,0 +1,32 @@
+# 시장 구조 규칙: 거래시간, 호가단위, 최소 주문단위
+krx:
+  calendar: XKRX                # exchange_calendars 휴장일 캘린더
+  timezone: Asia/Seoul
+  regular_open: "09:00"         # 시각은 반드시 따옴표로 감쌀 것 (YAML 60진수 해석 방지)
+  regular_close: "15:30"
+  opening_auction: {start: "08:30", end: "09:00"}
+  closing_auction: {start: "15:20", end: "15:30"}   # 15분봉 기준 15:15 봉에 포함
+  special_sessions: []          # 캘린더가 반영 못 한 개장·폐장 시각 변경일 수동 지정
+  #  - {date: 2026-11-19, open: "10:00", close: "16:30"}
+  lot_size: 1                   # 1주 단위
+  daily_price_limit: 0.30
+  tick_table:                   # 2023-01-25 이후 KOSPI·KOSDAQ 통합 호가가격단위 (below: 해당 가격 미만)
+    - {below: 2000, tick: 1}
+    - {below: 5000, tick: 5}
+    - {below: 20000, tick: 10}
+    - {below: 50000, tick: 50}
+    - {below: 200000, tick: 100}
+    - {below: 500000, tick: 500}
+    - {below: null, tick: 1000}
+
+binance:
+  timezone: UTC
+  always_open: true
+  filters_source: exchange_info   # LOT_SIZE·MIN_NOTIONAL·PRICE_FILTER를 거래소에서 조회해 캐시
+  fallback_filters:               # 조회 실패 시 사용 (2단계에서 exchangeInfo 실측값으로 갱신)
+    spot:
+      BTC/USDT: {min_qty: 0.00001, qty_step: 0.00001, min_notional: 5.0, price_tick: 0.01}
+      ETH/USDT: {min_qty: 0.0001, qty_step: 0.0001, min_notional: 5.0, price_tick: 0.01}
+    usdm_futures:
+      BTC/USDT: {min_qty: 0.001, qty_step: 0.001, min_notional: 100.0, price_tick: 0.1}
+      ETH/USDT: {min_qty: 0.001, qty_step: 0.001, min_notional: 20.0, price_tick: 0.01}
