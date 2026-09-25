@@ -27,7 +27,7 @@ providers:
     timeout_sec: 30
     max_retries: 3              # 일시적 네트워크 오류 재시도 횟수
     retry_backoff_sec: 2.0      # 재시도 대기 시작값 (2, 4, 8초 …)
-    spot_public_api: null       # 지역 차단 시 "https://data-api.binance.vision/api/v3" (현물 시세 전용)
+    spot_public_api: https://data-api.binance.vision/api/v3  # 현물 공개 시세·exchangeInfo 미러 (지역 차단 없음). null = api.binance.com
     vision_base_url: https://data.binance.vision
     vision_verify_checksum: true
 

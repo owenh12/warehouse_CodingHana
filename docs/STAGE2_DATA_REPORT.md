@@ -10,9 +10,9 @@
 | 항목 | 결과 |
 |---|---|
 | 코인 백테스트 기간 | **2025-01-01 00:00 ~ 2026-09-24 23:45 UTC** (어제 마지막 봉까지) 확보. 4개 시계열 모두 결측 0 |
-| 데이터 출처 | **data.binance.vision 아카이브를 기본으로 변경** (`history_source: vision`). REST API는 이 환경에서 지역 차단(HTTP 451) |
+| 데이터 출처 | **data.binance.vision 아카이브를 기본으로 변경** (`history_source: vision`, 승인됨). 현물 REST는 `data-api.binance.vision` 미러로 동작하고 **아카이브와 봉 단위로 완전 일치** |
 | 펀딩비 (선물) | 2025-01-01 ~ 2026-08-31 16:00. 아카이브는 월별 파일만 있어 **이번 달(9월) 펀딩비는 없다** |
-| 주문 필터 | **미검증.** exchangeInfo 가 REST 전용이라 451로 막혔다. `markets.yaml` 대체값을 그대로 쓴다 |
+| 주문 필터 | 현물: 거래소 실측값과 `markets.yaml` 대체값 **일치**. 선물: fapi가 지역 차단(451)이라 미확인 |
 | RSI·ATR | 실데이터 24만여 봉에서 TA-Lib과 RSI 최대 오차 6.4e-14, ATR 상대오차 1.1e-15. 증분 RSI = 일괄 RSI (비트 단위) |
 | 피벗 | 실데이터에서 일괄 = 증분, prefix 불변성 통과 |
 | 리샘플 | 1분봉 → 15분봉이 바이낸스 네이티브 15분봉과 OHLC 완전 일치 (BTC 현물 2026-08) |
@@ -24,11 +24,10 @@
 | `data.binance.vision` | ✅ 200 | 아카이브 사용 가능 |
 | `api.binance.com` | ❌ 451 | 프록시는 통과. 바이낸스가 접속 지역을 차단 ("restricted location") |
 | `fapi.binance.com` | ❌ 451 | 같음 |
-| `data-api.binance.vision` | ❌ 403 | 프록시 정책 차단 (허용 목록에 없음) |
+| `data-api.binance.vision` | ✅ 200 | 허용 목록 추가 후 동작. 현물 공개 시세·exchangeInfo 미러 (`spot_public_api` 기본값) |
 
 - 451은 바이낸스 쪽 차단이라 허용 목록을 바꿔도 풀리지 않는다. 사용자 PC(국내)에서는 REST가 동작할 것으로 예상한다.
-- `data-api.binance.vision`을 허용 목록에 추가하면 **현물** exchangeInfo·시세를 REST로 받을 수 있다
-  (`spot_public_api` 설정). 선물(fapi)에는 이런 공개 미러가 없다.
+- 현물은 `data-api.binance.vision`으로 REST 시세·exchangeInfo를 받는다. 선물(fapi)에는 이런 공개 미러가 없다.
 
 ## 3. 데이터 확보 점검 결과
 
@@ -57,13 +56,16 @@
 
 | 시장 | 심볼 | markets.yaml 대체값 | 거래소 실측 |
 |---|---|---|---|
-| spot | BTC/USDT | min_qty 0.00001, step 0.00001, min_notional 5, tick 0.01 | 미확인 (451) |
-| spot | ETH/USDT | min_qty 0.0001, step 0.0001, min_notional 5, tick 0.01 | 미확인 (451) |
+| spot | BTC/USDT | min_qty 0.00001, step 0.00001, min_notional 5, tick 0.01 | ✅ 일치 |
+| spot | ETH/USDT | min_qty 0.0001, step 0.0001, min_notional 5, tick 0.01 | ✅ 일치 |
 | usdm_futures | BTC/USDT | min_qty 0.001, step 0.001, min_notional 100, tick 0.1 | 미확인 (451) |
 | usdm_futures | ETH/USDT | min_qty 0.001, step 0.001, min_notional 20, tick 0.01 | 미확인 (451) |
 
-백테스트는 대체값으로 진행할 수 있다. 실거래(7단계) 전에는 반드시 거래소 값과 대조해야 한다.
-국내 PC에서 `python -m rsidiv data-check --source vision` 을 실행하면 필터 비교 표가 채워진다.
+기본 시장인 현물은 확인이 끝났다. 선물을 쓰게 되면 국내 PC에서 `python -m rsidiv data-check --markets usdm_futures`로 확인한다.
+
+### REST ↔ 아카이브 교차검증 (현물)
+
+2026-06-01 ~ 2026-09-24, BTC/USDT·ETH/USDT 각 11,136봉: 시각·OHLC 완전 일치, 거래량 차이 0.
 
 ## 4. 실데이터 검증 (`tests/test_real_data.py`)
 
@@ -99,6 +101,7 @@
 | 변경 | 이유 |
 |---|---|
 | `data.yaml` `history_source: rest → vision` | REST가 지역 차단(451). 아카이브는 SHA-256 검증되고 어제까지 완결된 데이터만 준다. 국내 PC에서 REST를 쓰려면 한 줄만 되돌리면 된다 |
+| `data.yaml` `spot_public_api: null → https://data-api.binance.vision/api/v3` | 현물 공개 시세·exchangeInfo 전용 미러. 지역 차단이 없다. 주문 등 인증 API에는 영향 없음 |
 | ccxt가 `HTTPS_PROXY`·`REQUESTS_CA_BUNDLE` 환경변수를 따르도록 (`requests_trust_env`) | ccxt 기본값은 환경변수를 무시해서, 프록시 뒤에서는 TLS 검증에 실패했다 |
 | HTTP 451(지역 차단)은 재시도하지 않고 바로 실패 | 이전에는 일시 오류로 보고 4회 재시도(약 14초 × 호출 수)했다. 오류 메시지에 451 응답 본문을 남긴다 |
 | `tests/test_real_data.py` 추가 | 위 4절 검증을 재현할 수 있게 한다. 기본 테스트 실행에서는 건너뛴다(네트워크 불필요) |
@@ -113,8 +116,6 @@
 
 ## 8. 확인이 필요한 사항
 
-1. **기본 데이터 출처를 `vision`으로 바꾼 것**을 승인해 주세요. 백테스트 결과에는 차이가 없어야 합니다.
-   REST와 봉 단위로 대조하는 검증은 REST가 되는 환경(국내 PC)에서 추가로 할 수 있습니다.
-2. **주문 필터 실측**: 국내 PC에서 `data-check`를 실행하거나, `data-api.binance.vision`을 허용 목록에 추가하면
-   현물 필터를 확인할 수 있습니다. 선물 필터는 국내 PC에서만 확인할 수 있습니다.
-3. **3단계(다이버전스 신호 + BTC/USDT 최근 3개월 신호 차트) 진행 여부.**
+1. ~~기본 데이터 출처 `vision`~~ → 승인됨 (2026-09-25).
+2. ~~주문 필터 실측~~ → 현물 일치 확인. 선물은 선물을 쓰기로 할 때 국내 PC에서 확인.
+3. ~~3단계 진행~~ → 승인됨.

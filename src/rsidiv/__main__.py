@@ -4,6 +4,7 @@
 - ``secrets`` : .env / 환경변수에 어떤 키가 설정되어 있는지 이름만 출력 (값은 출력하지 않음)
 - ``data-check`` : 바이낸스 데이터 확보 가능 여부 점검 → Markdown 보고서
 - ``fetch``   : 백테스트 기간의 바이낸스 15분봉(선물은 펀딩비 포함)을 받아 Parquet 캐시에 저장
+- ``signals`` : 다이버전스 신호 탐지 + 육안 검증 차트·CSV·요약 (기본: 마지막 3개월)
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ from rsidiv.core.config import (
     apply_dotted,
     load_settings,
     resolve_config_dir,
+    timeframe_minutes,
 )
 from rsidiv.core.secrets import ENV_VARS, load_secrets
 from rsidiv.core.timeutil import UTC, utc_now
@@ -121,6 +123,45 @@ def _cmd_fetch(args: argparse.Namespace) -> int:
     return 2 if failed else 0
 
 
+def _cmd_signals(args: argparse.Namespace) -> int:
+    import pandas as pd
+
+    from rsidiv.data.base import DataSourceError
+    from rsidiv.data.factory import binance_provider, resolve_project_path
+    from rsidiv.reports.signal_report import build_signal_report
+
+    settings = load_settings(args.config_dir)
+    crypto = settings.universe.crypto
+    symbol = args.symbol or crypto.symbols[0]
+    market = args.market or crypto.market_type
+    timeframe = settings.data.timeframe
+    start, end = _period(settings, None, args.end)
+    try:
+        frame = binance_provider(settings, market, source=args.source).fetch_ohlcv(symbol, timeframe, start, end)
+    except DataSourceError as exc:
+        print(f"데이터 조회 실패: {exc}", file=sys.stderr)
+        return 2
+    if frame.empty:
+        print("데이터가 없습니다", file=sys.stderr)
+        return 2
+    window_end = frame.index[-1] + pd.Timedelta(minutes=timeframe_minutes(timeframe))
+    window_start = window_end - pd.DateOffset(months=args.months)
+    out_dir = resolve_project_path(settings.base.paths.report_dir) / "signals" / (
+        f"{symbol.replace('/', '-')}_{market}_{window_start:%Y%m%d}_{window_end:%Y%m%d}"
+    )
+    report = build_signal_report(
+        frame, settings.strategy.for_asset_class("crypto"),
+        symbol=symbol, market=market, timeframe=timeframe, asset_class="crypto",
+        window_start=window_start.to_pydatetime(), window_end=window_end.to_pydatetime(),
+        display_tz=settings.base.project.display_timezone, out_dir=out_dir,
+    )
+    total = sum(c.accepted for c in report.all_candidates)
+    print(f"{symbol} {market}: 표시 기간 신호 {len(report.signals)}건, 필터 탈락 후보 {len(report.near_misses)}건 "
+          f"(전체 기간 신호 {total}건, t3 후보 {len(report.all_candidates)}건)")
+    print(f"보고서: {report.summary_path}")
+    return 0
+
+
 def _add_crypto_args(cmd: argparse.ArgumentParser) -> None:
     from rsidiv.data.binance import MarketType
 
@@ -153,12 +194,22 @@ def main(argv: Sequence[str] | None = None) -> int:
     fetch_cmd = sub.add_parser("fetch", help="바이낸스 데이터 다운로드 → Parquet 캐시")
     _add_crypto_args(fetch_cmd)
 
+    signals_cmd = sub.add_parser("signals", help="다이버전스 신호 + 육안 검증 차트")
+    signals_cmd.add_argument("--config-dir", default=None)
+    signals_cmd.add_argument("--symbol", default=None, help="기본: universe.yaml 의 첫 코인 심볼")
+    signals_cmd.add_argument("--market", choices=["spot", "usdm_futures"], default=None)
+    signals_cmd.add_argument("--source", choices=["rest", "vision"], default=None)
+    signals_cmd.add_argument("--months", type=int, default=3, help="표시 기간 (마지막 N개월)")
+    signals_cmd.add_argument("--end", default=None, help="YYYY-MM-DD, 미포함 (기본: 현재)")
+
     args = parser.parse_args(argv)
 
     if args.command == "data-check":
         return _cmd_data_check(args)
     if args.command == "fetch":
         return _cmd_fetch(args)
+    if args.command == "signals":
+        return _cmd_signals(args)
 
     if args.command == "config":
         try:

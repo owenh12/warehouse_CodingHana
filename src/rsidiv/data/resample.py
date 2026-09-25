@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import datetime as dt
+from dataclasses import dataclass
 
 import pandas as pd
 
@@ -52,3 +53,62 @@ def resample_ohlcv(
     )
     complete = grouped.index + pd.Timedelta(minutes=target) <= cutoff
     return normalize_ohlcv(grouped[complete])
+
+
+@dataclass(frozen=True, slots=True)
+class AggregatedBar:
+    start: pd.Timestamp  # 버킷 시작 시각 (UTC)
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: float
+
+
+class BarAggregator:
+    """:func:`resample_ohlcv` 의 증분 버전 (실시간·신호 탐지기용).
+
+    원천 봉을 시간순으로 한 개씩 넣으면, 그 시점에 완성된 상위 봉을 반환한다. 버킷이 완성되는 때는
+    (1) 버킷의 마지막 원천 봉이 들어왔을 때 (그 봉의 종가 시각 = 버킷 종료 시각), 또는
+    (2) 다음 버킷의 봉이 들어왔을 때(마지막 원천 봉이 없던 버킷, 예: 장 마감 후)다.
+    두 경우 모두 반환 시점의 시각이 버킷 종료 시각 이후이므로 미래참조가 없다.
+    """
+
+    def __init__(self, timeframe: str, *, source_timeframe: str) -> None:
+        target, source = timeframe_minutes(timeframe), timeframe_minutes(source_timeframe)
+        if target % source != 0 or target < source:
+            raise ValueError(f"{timeframe} 은 {source_timeframe} 의 정수배여야 합니다")
+        self._target = pd.Timedelta(minutes=target)
+        self._source = pd.Timedelta(minutes=source)
+        self._start: pd.Timestamp | None = None
+        self._ohlcv: list[float] = []
+
+    def _bucket_start(self, ts: pd.Timestamp) -> pd.Timestamp:
+        step = self._target.value
+        return pd.Timestamp(ts.value // step * step, tz="UTC")
+
+    def _finish(self) -> AggregatedBar:
+        assert self._start is not None
+        bar = AggregatedBar(self._start, *self._ohlcv)
+        self._start, self._ohlcv = None, []
+        return bar
+
+    def update(
+        self, time: dt.datetime | pd.Timestamp, open_: float, high: float, low: float,
+        close: float, volume: float,
+    ) -> list[AggregatedBar]:
+        ts = pd.Timestamp(time).tz_convert("UTC")
+        start = self._bucket_start(ts)
+        done: list[AggregatedBar] = []
+        if self._start is not None and start != self._start:
+            if start < self._start:
+                raise ValueError(f"봉 시각이 역행했습니다: {ts}")
+            done.append(self._finish())
+        if self._start is None:
+            self._start, self._ohlcv = start, [open_, high, low, close, volume]
+        else:
+            o, h, lo, _, v = self._ohlcv
+            self._ohlcv = [o, max(h, high), min(lo, low), close, v + volume]
+        if ts + self._source == start + self._target:
+            done.append(self._finish())
+        return done

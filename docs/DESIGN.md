@@ -1,7 +1,7 @@
 # RSI 강세 다이버전스 시스템 — 설계안 (1단계)
 
-> 상태: 1단계 완료. **2단계는 바이낸스 범위 완료**(승인 대기). KIS·KOSPI200·환율은 보류(사용자 지시).
-> 2단계 산출물은 §9와 §13에, 실데이터 점검 결과는 [`STAGE2_DATA_REPORT.md`](STAGE2_DATA_REPORT.md)에 있다.
+> 상태: 1·2단계 완료(2단계는 바이낸스 범위). **3단계 완료, 승인 대기.** KIS·KOSPI200·환율은 보류(사용자 지시).
+> 2단계: §9·§13, [`STAGE2_DATA_REPORT.md`](STAGE2_DATA_REPORT.md). 3단계: §14, [`STAGE3_SIGNAL_REPORT.md`](STAGE3_SIGNAL_REPORT.md).
 
 ---
 
@@ -87,9 +87,9 @@ flowchart LR
 |---|---|---|
 | 피벗 저점 t3는 **t3+R 봉 종가 확정 시각**에야 알 수 있다 | indicators.pivots | t3+R-1까지의 데이터로는 신호 없음 |
 | 신호 시각 = close(t3+R), 진입 = 그 **다음 봉 시가** | strategy / backtest | 진입 시각 > 신호 시각 |
-| t1, p2도 신호 시각까지 **확정된** 피벗만 사용한다 | signals | 데이터를 뒤에서 잘라도 과거 신호가 바뀌지 않음(prefix 불변성) |
+| t1, p2도 신호 시각까지 **확정된** 피벗만 사용한다 | signals | prefix 불변성·미래 봉 변경 불변성 ✅ (`test_divergence.py`) |
 | RSI·ATR·MA는 신호 봉까지의 값만 쓴다 | indicators | 동일 |
-| 4시간봉 추세 필터는 신호 시각 **이전에 마감된** 4h 봉만 쓴다 | signals.filters | 4h 봉 경계 케이스 |
+| 4시간봉 추세 필터는 신호 시각 **이전에 마감된** 4h 봉만 쓴다 | signals.divergence | `test_htf_trend_uses_only_closed_bars` ✅ |
 | 거래량 필터 창의 우측 길이 ≤ R | core.config 검증 | `test_volume_window_cannot_look_ahead` ✅ |
 | 수량 계산 기준가 = 신호 봉 종가(다음 시가는 주문 시점에 모름) | risk.sizing | 사이징 테스트 |
 | 트레일링 기준 고점은 봉 마감 후 갱신해 다음 봉부터 적용 | strategy.exits | 트레일링 테스트 |
@@ -115,6 +115,9 @@ prefix 불변성 테스트는 전체 데이터로 얻은 신호 목록과, 데�
 | 시간 청산 | 진입 봉을 1봉으로 세어 M봉째 종가 후 다음 봉 시가 청산 | — | 봉 단위 결정론 |
 | 진입 B | 신호 이후 N봉 안에 `close[k] > high[k-1]`이면 k+1 시가 진입. 대기 중 손절가 이탈 시 취소 | — | 요구사항 그대로 |
 | 진입 C | 신호 이후 N봉 안에 RSI가 기준값을 **아래→위로** 교차하면 다음 시가 진입 | — | 이미 기준값 위면 교차가 없으므로 진입 안 함 |
+| `scan_window` 탐색 범위 (3단계) | `gap_bars` min~max (enabled와 무관). 가까운 후보부터 | — | 탐색 범위가 없으면 계산량이 무한히 커진다 |
+| `no_lower_low_between` (3단계) | t1~t3 사이 **모든 봉**의 저가 ≥ Low(t3) | — | 피벗만 보면 `previous_pivot`에서 항상 통과하는 필터가 된다 |
+| 추세 필터의 가격 (3단계) | 신호 봉 종가 vs 이평. `htf_ma`는 신호 시각까지 마감된 상위 봉으로 계산 | — | 신호 시각에 알 수 있는 가장 최근 가격 |
 
 KRX 15분봉 격자: 09:00, 09:15, …, 15:15 (하루 26봉). 15:15 봉에는 종가 동시호가(15:20~15:30)가 포함된다. 기본 세션 필터는 09:00·09:15·15:00·15:15 봉에서 확정된 신호를 제외한다.
 
@@ -320,3 +323,21 @@ KRX 15분봉 격자: 09:00, 09:15, …, 15:15 (하루 26봉). 15:15 봉에는 �
 실데이터 검증(`tests/test_real_data.py`, `RSIDIV_REAL_DATA=1`일 때만 실행): 아카이브의 BTC·ETH 현물·선물 15분봉으로
 결측 0, TA-Lib 일치, 증분 = 일괄, 피벗 prefix 불변성, 1분봉 리샘플 = 네이티브 15분봉을 확인한다.
 결과와 피벗 빈도는 [`STAGE2_DATA_REPORT.md`](STAGE2_DATA_REPORT.md)에 있다.
+
+---
+
+## 14. 3단계 구현 (다이버전스 신호)
+
+| 모듈 | 내용 |
+|---|---|
+| `signals/divergence.py` | `DivergenceDetector`: 봉 1개씩 입력 → 그 봉에서 확정된 t3 후보의 판정(t1·p2·실패 사유). 백테스트용 `detect_divergences`도 같은 클래스를 돌린다 |
+| `indicators/ma.py` | `SmaState`·`EmaState`: 추세 필터용 증분 이평 (일괄과 비트 단위 일치) |
+| `data/resample.py` | `BarAggregator`: 증분 리샘플. 버킷의 마지막 원천 봉 또는 다음 버킷 첫 봉이 들어올 때 상위 봉 완성 |
+| `reports/signal_charts.py`, `signal_report.py` | 육안 검증 차트(개요 + 후보별 확대), 후보 CSV, 요약 Markdown |
+
+- 후보는 확정된 피벗 저점마다 하나씩 만들어지고, 신호가 아니어도 실패 사유를 모두 기록한다. 4단계 리포트와 5단계 최적화에서
+  필터별 영향을 집계하는 데 그대로 쓴다.
+- 판정 순서: 정의(t1 존재 → RSI 워밍업 → p2 존재 → 가격 LL → RSI HL → p2 구조) → 필터(간격 → RSI 과매도 → RSI 상승폭 →
+  가격 하락폭 → 사이 저가 → 추세 → 거래량 → 세션). 모든 조건을 평가하고 사유를 이 순서로 기록한다.
+- 검증은 독립 참조 구현과의 일치 테스트가 중심이다(파라미터 10조합 + 세션 3종). 자세한 내용은
+  [`STAGE3_SIGNAL_REPORT.md`](STAGE3_SIGNAL_REPORT.md) §4.
