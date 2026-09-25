@@ -4,6 +4,7 @@
   ccxt 무기한 선물 심볼은 ``BTC/USDT:USDT``.
 - 봉 시각은 봉 시작 시각(UTC). 응답의 마지막 봉이 아직 마감 전이면 제외한다.
 - 일시적 네트워크 오류는 지수 백오프로 재시도하고, 소진되면 :class:`DataSourceError`.
+  지역 차단(HTTP 451)은 재시도해도 풀리지 않으므로 바로 실패한다.
 """
 
 from __future__ import annotations
@@ -74,8 +75,17 @@ def parse_symbol_filters(raw_filters: Sequence[Mapping[str, Any]]) -> SymbolFilt
     )
 
 
+def is_region_blocked(exc: BaseException) -> bool:
+    """바이낸스가 접속 지역을 차단한 응답(HTTP 451)인지. ccxt 는 이를 NetworkError 계열로 던진다."""
+    text = str(exc)
+    return " 451 " in text or "restricted location" in text
+
+
 class RetryPolicy:
-    """일시적 오류 재시도: ``max_retries`` 회까지 ``backoff_sec * 2**n`` 초 대기."""
+    """일시적 오류 재시도: ``max_retries`` 회까지 ``backoff_sec * 2**n`` 초 대기.
+
+    ``retry_on`` 에 해당해도 ``give_up(exc)`` 가 참이면 재시도하지 않는다 (예: 지역 차단).
+    """
 
     def __init__(
         self,
@@ -83,17 +93,21 @@ class RetryPolicy:
         backoff_sec: float,
         retry_on: tuple[type[BaseException], ...],
         sleep: Callable[[float], None] = time.sleep,
+        give_up: Callable[[BaseException], bool] | None = None,
     ) -> None:
         self.max_retries = max_retries
         self.backoff_sec = backoff_sec
         self.retry_on = retry_on
         self._sleep = sleep
+        self._give_up = give_up
 
     def call(self, what: str, fn: Callable[[], T]) -> T:
         for attempt in range(self.max_retries + 1):
             try:
                 return fn()
             except self.retry_on as exc:
+                if self._give_up is not None and self._give_up(exc):
+                    raise DataSourceError(f"{what}: 재시도하지 않음 ({type(exc).__name__}: {exc})") from exc
                 if attempt == self.max_retries:
                     raise DataSourceError(
                         f"{what}: {self.max_retries + 1}회 시도 실패 ({type(exc).__name__}: {exc})"
@@ -106,10 +120,18 @@ def create_ccxt_exchange(
     market_type: MarketType, *, enable_rate_limit: bool, timeout_sec: float,
     spot_public_api: str | None = None,
 ) -> Any:
-    """공개 시세용 ccxt 거래소 객체 (API 키 없음). 현물은 현물 시장 정보만 로드한다."""
+    """공개 시세용 ccxt 거래소 객체 (API 키 없음). 현물은 현물 시장 정보만 로드한다.
+
+    ccxt 는 기본적으로 HTTPS_PROXY·REQUESTS_CA_BUNDLE 환경변수를 무시한다. 프록시 뒤에서도
+    동작하도록 requests 가 환경변수를 따르게 한다.
+    """
     import ccxt
 
-    options: dict[str, Any] = {"enableRateLimit": enable_rate_limit, "timeout": int(timeout_sec * 1000)}
+    options: dict[str, Any] = {
+        "enableRateLimit": enable_rate_limit,
+        "timeout": int(timeout_sec * 1000),
+        "requests_trust_env": True,
+    }
     if market_type == "spot":
         exchange = ccxt.binance({**options, "options": {"fetchMarkets": {"types": ["spot"]}}})
         if spot_public_api:

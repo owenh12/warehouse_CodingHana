@@ -24,6 +24,7 @@ from rsidiv.data.binance import (
     RetryPolicy,
     ccxt_symbol,
     exchange_id,
+    is_region_blocked,
     parse_symbol_filters,
 )
 from rsidiv.data.binance_vision import BinanceVisionProvider, parse_kline_csv
@@ -31,7 +32,8 @@ from rsidiv.data.binance_vision import BinanceVisionProvider, parse_kline_csv
 
 def rest(exchange: FakeExchange, now: dt.datetime, market: str = "spot", page: int = 100,
          retries: int = 3, sleeps: list[float] | None = None) -> BinanceRestProvider:
-    retry = RetryPolicy(retries, 1.0, (ccxt.NetworkError,), sleep=(sleeps.append if sleeps is not None else lambda s: None))
+    retry = RetryPolicy(retries, 1.0, (ccxt.NetworkError,), give_up=is_region_blocked,
+                        sleep=(sleeps.append if sleeps is not None else lambda s: None))
     return BinanceRestProvider(market, exchange, retry=retry, page_limit=page, clock=lambda: now)  # type: ignore[arg-type]
 
 
@@ -96,6 +98,22 @@ def test_retry_exhausted_raises_data_source_error() -> None:
     ex = FakeExchange(utc(2025, 1, 1), now, fail_times=10)
     with pytest.raises(DataSourceError, match="4회 시도 실패"):
         rest(ex, now).fetch_ohlcv("BTC/USDT", "15m", utc(2025, 1, 1), utc(2025, 1, 2))
+
+
+def test_region_block_is_not_retried() -> None:
+    # ccxt 가 HTTP 451 을 던지는 형식: "<id> <method> <url> 451 <reason> <body>"
+    blocked = ccxt.ExchangeNotAvailable(
+        'binance GET https://api.binance.com/api/v3/exchangeInfo 451  '
+        '{"code": 0, "msg": "Service unavailable from a restricted location ..."}'
+    )
+    assert isinstance(blocked, ccxt.NetworkError) and is_region_blocked(blocked)
+    assert not is_region_blocked(ccxt.NetworkError("binance GET https://api.binance.com/api/v3/ping"))
+    now = utc(2025, 1, 2)
+    sleeps: list[float] = []
+    ex = FakeExchange(utc(2025, 1, 1), now, fail_times=10, fail_with=blocked)
+    with pytest.raises(DataSourceError, match=r"재시도하지 않음.*451"):
+        rest(ex, now, sleeps=sleeps).symbol_filters("BTC/USDT")
+    assert sleeps == [] and ex.fail_times == 9
 
 
 def test_earliest_available() -> None:

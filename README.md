@@ -10,7 +10,7 @@ KOSPI200 구성 종목과 BTC·ETH의 15분봉에서 **RSI 정규 강세 다이�
 | 단계 | 내용 | 상태 |
 |---|---|---|
 | 1 | 프로젝트 구조, 설정 파일 설계 | ✅ 완료 |
-| 2 | 데이터 확보 점검 → 데이터 계층, RSI, 피벗, 단위 테스트 | 🔶 바이낸스만 진행. 구현·테스트 완료, 실데이터 점검은 네트워크 허용 대기. KIS 보류 |
+| 2 | 데이터 확보 점검 → 데이터 계층, RSI, 피벗, 단위 테스트 | 🔶 바이낸스 완료, 승인 대기 ([보고서](docs/STAGE2_DATA_REPORT.md)). KIS 보류 |
 | 3 | 다이버전스 신호 + 신호 차트 육안 검증 (BTC/USDT 최근 3개월) | ⏳ |
 | 4 | 백테스트 엔진 + 성과 리포트 | ⏳ |
 | 5 | 파라미터 최적화, Walk-forward, 몬테카를로 | ⏳ |
@@ -33,9 +33,10 @@ python -m rsidiv config                          # 설정 전체 검증 + 요약
 python -m rsidiv config --override exp.yaml      # 실험용 덮어쓰기 적용 후 검증
 python -m rsidiv secrets                         # .env 키 설정 여부 (이름만 표시, 값은 표시하지 않음)
 python -m rsidiv data-check --markets spot usdm_futures   # 바이낸스 데이터 확보 점검 → storage/reports/data_check/
-python -m rsidiv data-check --source vision      # 아카이브(data.binance.vision)로 점검
+python -m rsidiv data-check --source rest        # REST API(ccxt)로 점검 (기본은 아카이브 data.binance.vision)
 python -m rsidiv fetch                           # 백테스트 기간 15분봉을 Parquet 캐시에 저장
 python -m pytest                                 # 단위 테스트
+RSIDIV_REAL_DATA=1 python -m pytest tests/test_real_data.py   # 실데이터 검증 (아카이브 다운로드)
 ```
 
 ## 디렉터리

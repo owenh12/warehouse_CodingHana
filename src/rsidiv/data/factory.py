@@ -14,6 +14,7 @@ from rsidiv.data.binance import (
     MarketType,
     RetryPolicy,
     create_ccxt_exchange,
+    is_region_blocked,
 )
 from rsidiv.data.binance_vision import BinanceVisionProvider
 from rsidiv.data.cache import CachedDataProvider, ParquetStore
@@ -38,7 +39,9 @@ def binance_rest(
     )
     import ccxt
 
-    retry = RetryPolicy(cfg.max_retries, cfg.retry_backoff_sec, (ccxt.NetworkError,))
+    retry = RetryPolicy(
+        cfg.max_retries, cfg.retry_backoff_sec, (ccxt.NetworkError,), give_up=is_region_blocked
+    )
     return BinanceRestProvider(
         market_type, exchange, retry=retry, page_limit=cfg.page_limit, clock=clock
     )

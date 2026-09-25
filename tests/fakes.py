@@ -57,10 +57,12 @@ class FakeExchange:
         fail_times: int = 0,
         funding: dict[int, float] | None = None,
         filters: list[dict[str, Any]] | None = None,
+        fail_with: Exception | None = None,
     ) -> None:
         self.first_ms, self.now_ms = ms(first), ms(now)
         self.missing = {ms(t) for t in (missing or set())}
         self.fail_times = fail_times
+        self.fail_with = fail_with or ccxt.NetworkError("simulated network error")
         self.funding = funding or {}
         self.filters = filters or SPOT_FILTERS
         self.ohlcv_calls: list[tuple[str, int | None, int | None]] = []
@@ -71,7 +73,7 @@ class FakeExchange:
     def _maybe_fail(self) -> None:
         if self.fail_times > 0:
             self.fail_times -= 1
-            raise ccxt.NetworkError("simulated network error")
+            raise self.fail_with
 
     def load_markets(self) -> dict[str, Any]:
         self._maybe_fail()

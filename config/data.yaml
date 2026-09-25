@@ -4,7 +4,7 @@ timeframe: 15m                  # 전략 타임프레임
 backtest_period:
   start: 2025-01-01
   end: null                     # null = 실행 시점의 마지막 확정 봉
-  # ※ 2단계 데이터 점검에서 자산별 실제 확보 가능 기간을 보고한 뒤 확정한다.
+  # 바이낸스 BTC·ETH 현물·선물: 2025-01-01부터 결측 0 확인 (2단계 점검). 주식은 KIS 점검 후 확정.
 
 providers:
   kis:
@@ -19,7 +19,8 @@ providers:
     source_timeframe: 1m        # KIS 분봉(1분) → 15분봉 리샘플 (주식은 보류 중)
     adjust_prices: true         # 액면분할·병합: 일봉 수정주가/원주가 비율로 분봉 보정
   binance:
-    history_source: rest        # rest: ccxt REST API | vision: data.binance.vision 월·일별 아카이브
+    history_source: vision      # vision: data.binance.vision 월·일별 아카이브 (SHA-256 검증, 어제까지) | rest: ccxt REST API
+                                # REST 는 지역 차단(451)될 수 있어 과거 데이터는 아카이브를 기본으로 한다 (docs/STAGE2_DATA_REPORT.md)
     source_timeframe: 15m       # 바이낸스는 15m 네이티브 제공 (1m 리샘플과 교차검증 가능)
     enable_rate_limit: true     # ccxt 내장 요청 간격 제어
     page_limit: 1000            # 요청당 최대 행 수 (바이낸스 한도 1000)
