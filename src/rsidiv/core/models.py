@@ -54,22 +54,46 @@ class OrderPurpose(StrEnum):
     TIME_EXIT = "time_exit"
     SESSION_FLATTEN = "session_flatten"
     KILL_SWITCH = "kill_switch"
+    END_OF_TEST = "end_of_test"  # 백테스트 종료 시점에 보유 중인 포지션을 마지막 종가로 정리
+
+
+@dataclass(frozen=True, slots=True)
+class Bar:
+    """마감된 봉 하나. ``time`` 은 봉 시작 시각(UTC)."""
+
+    time: dt.datetime
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: float
 
 
 class InstrumentRules(Protocol):
     """종목별 거래 규칙 (KRX 호가단위·1주 단위, 바이낸스 LOT_SIZE·MIN_NOTIONAL 등)."""
 
-    symbol: str
-    asset_class: AssetClass
-    min_qty: float
-    min_notional: float
+    @property
+    def symbol(self) -> str: ...
+
+    @property
+    def asset_class(self) -> AssetClass: ...
+
+    @property
+    def min_qty(self) -> float: ...
+
+    @property
+    def min_notional(self) -> float: ...
 
     def round_qty(self, qty: float) -> float:
         """주문 가능한 수량으로 내림한다 (0 이 될 수 있음)."""
         ...
 
-    def round_price(self, price: float, side: Side) -> float:
-        """호가단위에 맞춘다. 매수는 올림·매도는 내림 등 불리한 방향으로 맞춘다."""
+    def floor_price(self, price: float) -> float:
+        """호가단위로 내림 (예: 매도 손절가)."""
+        ...
+
+    def ceil_price(self, price: float) -> float:
+        """호가단위로 올림 (예: 매도 목표가)."""
         ...
 
     def tick_size(self, price: float) -> float:
@@ -91,6 +115,7 @@ class OrderRequest:
     created_at: dt.datetime
     limit_price: float | None = None
     stop_price: float | None = None
+    oco_group: str | None = None  # 같은 그룹의 주문 하나가 체결되면 나머지는 취소 (손절·익절 쌍)
 
     def __post_init__(self) -> None:
         if self.qty <= 0:
@@ -143,14 +168,10 @@ class Order:
 
 @dataclass(slots=True)
 class Position:
-    """보유 포지션(롱 전용). 보호 주문 가격은 전략 계층이 관리한다."""
+    """브로커가 보고하는 보유 포지션(롱 전용). 손절·익절·보유 봉 수는 전략 계층이 관리한다."""
 
     symbol: str
     asset_class: AssetClass
     qty: float
     avg_price: float
     opened_at: dt.datetime
-    stop_price: float
-    target_price: float | None = None
-    bars_held: int = 0
-    highest_close: float | None = None

@@ -84,3 +84,14 @@ def test_moving_averages_match_talib(period: int) -> None:
     assert np.array_equal(moving_average(close, period, "ema"), ema(close, period), equal_nan=True)
     with pytest.raises(ValueError):
         moving_average(close, period, "wma")
+
+
+@pytest.mark.parametrize("period", [2, 14])
+def test_incremental_atr_is_bit_identical(period: int) -> None:
+    from rsidiv.indicators.atr import AtrState
+
+    high, low, close = ohlc()
+    state = AtrState(period)
+    streamed = np.array([np.nan if (v := state.update(float(h), float(lo), float(c))) is None else v
+                         for h, lo, c in zip(high, low, close, strict=True)])
+    assert np.array_equal(streamed, atr_wilder(high, low, close, period), equal_nan=True)

@@ -627,6 +627,7 @@ class SizingCfg(_Model):
     include_costs_in_risk: bool
     on_below_min: Literal["skip"]
     on_cap_exceeded: Literal["cap", "skip"]
+    cash_buffer: Annotated[float, Field(ge=0.0, lt=0.2)]
 
 
 class AssetLimitsCfg(_Model):

@@ -7,6 +7,7 @@ sizing:
   include_costs_in_risk: true   # 1R에 예상 수수료·세금·슬리피지 포함
   on_below_min: skip            # 최소 주문단위·금액 미만 → 진입 안 함, '자본 부족 스킵'으로 기록
   on_cap_exceeded: cap          # 비중 상한·가용현금 초과: cap(수량 축소 후 진입) | skip
+  cash_buffer: 0.005            # 가용현금 중 이 비율은 쓰지 않음 (다음 봉 시가가 기준가보다 높아 주문이 거부되는 것 방지)
 
 limits:                         # 자산군별 동시 보유 종목 수 · 종목당 최대 비중 (자산군 평가금액 대비)
   stock_kr: {max_positions: 3, max_weight: 0.34}

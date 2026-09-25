@@ -9,7 +9,7 @@ from __future__ import annotations
 import numpy as np
 import numpy.typing as npt
 
-from rsidiv.indicators.wilder import FloatArray, wilder_smooth
+from rsidiv.indicators.wilder import FloatArray, WilderSmoother, wilder_smooth
 
 
 def true_range(high: npt.ArrayLike, low: npt.ArrayLike, close: npt.ArrayLike) -> FloatArray:
@@ -27,3 +27,21 @@ def atr_wilder(
 ) -> FloatArray:
     """ATR 배열 (앞 ``period`` 개는 NaN)."""
     return wilder_smooth(true_range(high, low, close), period, first=1)
+
+
+class AtrState:
+    """:func:`atr_wilder` 의 증분 버전. 결과가 비트 단위로 같다."""
+
+    def __init__(self, period: int = 14) -> None:
+        self.period = period
+        self._prev_close: float | None = None
+        self._smoother = WilderSmoother(period)
+        self.value: float | None = None
+
+    def update(self, high: float, low: float, close: float) -> float | None:
+        prev, self._prev_close = self._prev_close, close
+        if prev is None:
+            return None
+        tr = max(high - low, abs(high - prev), abs(low - prev))
+        self.value = self._smoother.update(tr)
+        return self.value

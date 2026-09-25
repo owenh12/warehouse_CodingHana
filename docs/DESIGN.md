@@ -1,7 +1,8 @@
 # RSI 강세 다이버전스 시스템 — 설계안 (1단계)
 
-> 상태: 1·2단계 완료(2단계는 바이낸스 범위). **3단계 완료, 승인 대기.** KIS·KOSPI200·환율은 보류(사용자 지시).
+> 상태: 1~3단계 완료(2단계는 바이낸스 범위). **4단계 완료, 승인 대기.** KIS·KOSPI200·환율은 보류(사용자 지시).
 > 2단계: §9·§13, [`STAGE2_DATA_REPORT.md`](STAGE2_DATA_REPORT.md). 3단계: §14, [`STAGE3_SIGNAL_REPORT.md`](STAGE3_SIGNAL_REPORT.md).
+> 4단계: §15, [`STAGE4_BACKTEST_REPORT.md`](STAGE4_BACKTEST_REPORT.md).
 
 ---
 
@@ -86,14 +87,14 @@ flowchart LR
 | 규칙 | 구현 위치 | 검증 테스트 (2~4단계) |
 |---|---|---|
 | 피벗 저점 t3는 **t3+R 봉 종가 확정 시각**에야 알 수 있다 | indicators.pivots | t3+R-1까지의 데이터로는 신호 없음 |
-| 신호 시각 = close(t3+R), 진입 = 그 **다음 봉 시가** | strategy / backtest | 진입 시각 > 신호 시각 |
+| 신호 시각 = close(t3+R), 진입 = 그 **다음 봉 시가** | strategy / backtest | `test_take_profit_trade` 등 ✅ (진입 시각 = 신호 시각) |
 | t1, p2도 신호 시각까지 **확정된** 피벗만 사용한다 | signals | prefix 불변성·미래 봉 변경 불변성 ✅ (`test_divergence.py`) |
 | RSI·ATR·MA는 신호 봉까지의 값만 쓴다 | indicators | 동일 |
 | 4시간봉 추세 필터는 신호 시각 **이전에 마감된** 4h 봉만 쓴다 | signals.divergence | `test_htf_trend_uses_only_closed_bars` ✅ |
 | 거래량 필터 창의 우측 길이 ≤ R | core.config 검증 | `test_volume_window_cannot_look_ahead` ✅ |
-| 수량 계산 기준가 = 신호 봉 종가(다음 시가는 주문 시점에 모름) | risk.sizing | 사이징 테스트 |
-| 트레일링 기준 고점은 봉 마감 후 갱신해 다음 봉부터 적용 | strategy.exits | 트레일링 테스트 |
-| 같은 봉에서 손절·익절이 모두 닿으면 손절 우선. 갭으로 손절가를 건너뛰면 시가 체결 | backtest.sim_broker | 체결 모델 테스트 |
+| 수량 계산 기준가 = 신호 봉 종가(다음 시가는 주문 시점에 모름) | risk.sizing | `test_risk.py` ✅ |
+| 트레일링 기준 고점은 봉 마감 후 갱신해 다음 봉부터 적용 | strategy.controller | `test_trailing_stop_ratchets_up` ✅ |
+| 같은 봉에서 손절·익절이 모두 닿으면 손절 우선. 갭으로 손절가를 건너뛰면 시가 체결 | broker.sim | `test_sim_broker.py` ✅ |
 
 prefix 불변성 테스트는 전체 데이터로 얻은 신호 목록과, 데이터를 k번째 봉까지만 넣어 얻은 신호 목록이 신호 시각 ≤ k 구간에서 같은지 모든 k에 대해 확인한다. 미래참조를 잡는 가장 강한 테스트다.
 
@@ -341,3 +342,16 @@ KRX 15분봉 격자: 09:00, 09:15, …, 15:15 (하루 26봉). 15:15 봉에는 �
   가격 하락폭 → 사이 저가 → 추세 → 거래량 → 세션). 모든 조건을 평가하고 사유를 이 순서로 기록한다.
 - 검증은 독립 참조 구현과의 일치 테스트가 중심이다(파라미터 10조합 + 세션 3종). 자세한 내용은
   [`STAGE3_SIGNAL_REPORT.md`](STAGE3_SIGNAL_REPORT.md) §4.
+
+---
+
+## 15. 4단계 구현 (백테스트 엔진)
+
+- 계좌마다 `AccountController`(공용 매매 관리) + `Broker` 구현체. 백테스트는 `SimBroker`, 6단계 모의투자는 `PaperBroker`,
+  7단계 실거래는 `CcxtBroker`·`KISBroker` 를 같은 컨트롤러에 붙인다.
+- 한 봉의 처리 순서는 §5 그대로다. 체결 단계는 펀딩 → 시가(시장가) → 봉 내부(손절 우선, 진입 직후 주문 포함) →
+  봉 중간 주문 보수 판정 → 종가 평가. 이어서 컨트롤러가 봉 종가 결정을 내리고, 마지막에 리스크를 판정한다.
+- 거래 기록: 신호(t1·p2·t3), 결정·진입·청산 시각과 가격, 최초·최종 손절, 목표가, 수수료·세금·펀딩비, R(순손익 ÷ 최초 위험),
+  MAE/MFE. 신호마다 진입 여부와 스킵 사유를 남긴다.
+- 시나리오: 기준, 비용 제외, 슬리피지 ×0·×2, 리스크 규칙 끔 (`costs.yaml`·`backtest.yaml` 설정에서 생성).
+- 결과와 해석은 [`STAGE4_BACKTEST_REPORT.md`](STAGE4_BACKTEST_REPORT.md). 기본 파라미터는 비용 반영 후 손실(−7.8%)이다.

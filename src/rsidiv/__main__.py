@@ -5,6 +5,7 @@
 - ``data-check`` : 바이낸스 데이터 확보 가능 여부 점검 → Markdown 보고서
 - ``fetch``   : 백테스트 기간의 바이낸스 15분봉(선물은 펀딩비 포함)을 받아 Parquet 캐시에 저장
 - ``signals`` : 다이버전스 신호 탐지 + 육안 검증 차트·CSV·요약 (기본: 마지막 3개월)
+- ``backtest``: 백테스트 (시나리오 비교, 거래·신호·평가금액 CSV, 차트, 요약)
 """
 
 from __future__ import annotations
@@ -162,6 +163,45 @@ def _cmd_signals(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_backtest(args: argparse.Namespace) -> int:
+    from rsidiv.backtest.engine import default_scenarios
+    from rsidiv.data.base import DataSourceError
+    from rsidiv.data.factory import binance_provider, resolve_project_path
+    from rsidiv.reports.backtest_report import build_backtest_report
+
+    try:
+        settings = load_settings(args.config_dir, args.override)
+    except (ValidationError, ValueError) as exc:
+        print(f"설정 검증 실패: {exc}", file=sys.stderr)
+        return 1
+    market = args.market or settings.universe.crypto.market_type
+    start, end = _period(settings, args.start, args.end)
+    provider = binance_provider(settings, market, source=args.source)
+    try:
+        data = {s: provider.fetch_ohlcv(s, settings.data.timeframe, start, end)
+                for s in settings.universe.crypto.symbols}
+        funding = ({s: provider.funding_rates(s, start, end) for s in data}
+                   if market == "usdm_futures" else None)
+    except DataSourceError as exc:
+        print(f"데이터 조회 실패: {exc}", file=sys.stderr)
+        return 2
+    first = min(f.index[0] for f in data.values())
+    last = max(f.index[-1] for f in data.values())
+    scenarios = default_scenarios(settings)
+    if args.scenarios == "base":
+        scenarios = scenarios[:1]
+    run_id = args.name or f"{market}_{first:%Y%m%d}_{last:%Y%m%d}"
+    out_dir = resolve_project_path(settings.base.paths.report_dir) / "backtest" / run_id
+    report = build_backtest_report(settings, data, scenarios=scenarios, market_type=market, out_dir=out_dir,
+                                   funding=funding, charts=not args.no_charts)
+    for s in report.scenarios:
+        print(f"[{s.result.scenario.name}] 수익률 {s.returns.total_return:+.2%}, MDD {s.returns.max_drawdown:.2%}, "
+              f"거래 {s.trades.trades}건, 기대값 {s.trades.expectancy_r:+.3f}R")
+    print(f"[매수 후 보유] 수익률 {report.benchmark.total_return:+.2%}, MDD {report.benchmark.max_drawdown:.2%}")
+    print(f"보고서: {report.summary_path}")
+    return 0
+
+
 def _add_crypto_args(cmd: argparse.ArgumentParser) -> None:
     from rsidiv.data.binance import MarketType
 
@@ -202,6 +242,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     signals_cmd.add_argument("--months", type=int, default=3, help="표시 기간 (마지막 N개월)")
     signals_cmd.add_argument("--end", default=None, help="YYYY-MM-DD, 미포함 (기본: 현재)")
 
+    bt_cmd = sub.add_parser("backtest", help="백테스트 + 성과 보고서")
+    bt_cmd.add_argument("--config-dir", default=None)
+    bt_cmd.add_argument("--override", action="append", default=[], help="실험용 덮어쓰기 YAML")
+    bt_cmd.add_argument("--market", choices=["spot", "usdm_futures"], default=None)
+    bt_cmd.add_argument("--source", choices=["rest", "vision"], default=None)
+    bt_cmd.add_argument("--start", default=None, help="YYYY-MM-DD (기본: backtest_period.start)")
+    bt_cmd.add_argument("--end", default=None, help="YYYY-MM-DD, 미포함 (기본: 현재)")
+    bt_cmd.add_argument("--scenarios", choices=["all", "base"], default="all")
+    bt_cmd.add_argument("--name", default=None, help="보고서 폴더 이름 (기본: 시장_시작_끝)")
+    bt_cmd.add_argument("--no-charts", action="store_true")
+
     args = parser.parse_args(argv)
 
     if args.command == "data-check":
@@ -210,6 +261,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _cmd_fetch(args)
     if args.command == "signals":
         return _cmd_signals(args)
+    if args.command == "backtest":
+        return _cmd_backtest(args)
 
     if args.command == "config":
         try:

@@ -154,6 +154,14 @@ class DivergenceDetector:
     def bars_seen(self) -> int:
         return len(self._times)
 
+    def time_at(self, index: int) -> pd.Timestamp:
+        """index 번째 봉의 시작 시각 (UTC)."""
+        return self._times[index]
+
+    def rsi_at(self, index: int) -> float:
+        """index 번째 봉의 RSI (워밍업 구간은 NaN). 음수 index 는 뒤에서부터."""
+        return self._rsi[index]
+
     # --- 입력 --------------------------------------------------------------
 
     def update(

@@ -51,7 +51,7 @@ class SignalReport:
     charts: list[Path]
 
 
-def _params_lines(p: StrategyParams) -> list[str]:
+def params_lines(p: StrategyParams) -> list[str]:
     f = p.filters
     on = []
     if f.gap_bars.enabled:
@@ -165,7 +165,7 @@ def build_signal_report(
         f"- 탐지 구간: {frame.index[0].tz_convert(display_tz):%Y-%m-%d} ~ "
         f"{(frame.index[-1] + pd.Timedelta(minutes=15)).tz_convert(display_tz):%Y-%m-%d %H:%M} KST "
         f"({len(frame):,}봉). 백테스트와 같은 시작점에서 탐지해 워밍업 차이가 없다.",
-        *_params_lines(params),
+        *params_lines(params),
         "",
         "![overview](overview.png)",
         "",
