@@ -162,7 +162,7 @@ class StockUniverseCfg(_Model):
 class CryptoUniverseCfg(_Model):
     enabled: bool
     venue: Literal["binance"]
-    provider: Literal["ccxt"]
+    provider: Literal["binance"]
     account_currency: Literal["USDT"]
     market_type: Literal["spot", "usdm_futures"]
     symbols: list[str] = Field(min_length=1)
@@ -201,16 +201,22 @@ class KisProviderCfg(_Model):
     adjust_prices: bool
 
 
-class CcxtProviderCfg(_Model):
-    exchange_id: Literal["binance"]
-    enable_rate_limit: bool
+class BinanceProviderCfg(_Model):
+    history_source: Literal["rest", "vision"]
     source_timeframe: Timeframe
-    bulk_download: bool
+    enable_rate_limit: bool
+    page_limit: Annotated[int, Field(ge=1, le=1000)]
+    timeout_sec: PositiveFloat
+    max_retries: NonNegativeInt
+    retry_backoff_sec: Annotated[float, Field(ge=0.0)]
+    spot_public_api: str | None
+    vision_base_url: str
+    vision_verify_checksum: bool
 
 
 class ProvidersCfg(_Model):
     kis: KisProviderCfg
-    ccxt: CcxtProviderCfg
+    binance: BinanceProviderCfg
 
 
 class FxCfg(_Model):
@@ -244,7 +250,7 @@ class DataCfg(_Model):
     @model_validator(mode="after")
     def _source_divides_timeframe(self) -> DataCfg:
         target = timeframe_minutes(self.timeframe)
-        for name in ("kis", "ccxt"):
+        for name in ("kis", "binance"):
             source = timeframe_minutes(getattr(self.providers, name).source_timeframe)
             if source > target or target % source != 0:
                 raise ValueError(

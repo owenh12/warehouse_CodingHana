@@ -16,7 +16,7 @@ stock_kr:
 crypto:
   enabled: true
   venue: binance
-  provider: ccxt
+  provider: binance            # ccxt(REST) 또는 data.binance.vision(아카이브), data.yaml 참조
   account_currency: USDT        # USDT는 data.yaml의 fx.usdt_per_usd 비율로 USD 환산
   market_type: spot             # spot | usdm_futures (선물 선택 시 펀딩비·명목가치 수수료 반영)
   symbols: [BTC/USDT, ETH/USDT]

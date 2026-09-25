@@ -2,18 +2,29 @@
 
 - ``config``  : 설정 파일 전체를 검증하고 핵심 값을 요약 출력
 - ``secrets`` : .env / 환경변수에 어떤 키가 설정되어 있는지 이름만 출력 (값은 출력하지 않음)
+- ``data-check`` : 바이낸스 데이터 확보 가능 여부 점검 → Markdown 보고서
+- ``fetch``   : 백테스트 기간의 바이낸스 15분봉(선물은 펀딩비 포함)을 받아 Parquet 캐시에 저장
 """
 
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import sys
 from collections.abc import Sequence
+from typing import get_args
 
 from pydantic import ValidationError
 
-from rsidiv.core.config import ASSET_CLASSES, Settings, load_settings, resolve_config_dir
+from rsidiv.core.config import (
+    ASSET_CLASSES,
+    Settings,
+    apply_dotted,
+    load_settings,
+    resolve_config_dir,
+)
 from rsidiv.core.secrets import ENV_VARS, load_secrets
+from rsidiv.core.timeutil import UTC, utc_now
 
 
 def _summarize(settings: Settings) -> str:
@@ -43,6 +54,86 @@ def _summarize(settings: Settings) -> str:
     return "\n".join(lines)
 
 
+def _period(settings: Settings, start: str | None, end: str | None) -> tuple[dt.datetime, dt.datetime]:
+    period = settings.data.backtest_period
+    start_date = dt.date.fromisoformat(start) if start else period.start
+    end_date = dt.date.fromisoformat(end) if end else period.end
+    start_ts = dt.datetime.combine(start_date, dt.time(), tzinfo=UTC)
+    end_ts = dt.datetime.combine(end_date, dt.time(), tzinfo=UTC) if end_date else utc_now()
+    return start_ts, end_ts
+
+
+def _crypto_settings(args: argparse.Namespace) -> Settings:
+    settings = load_settings(args.config_dir)
+    if args.retries is not None:
+        settings = apply_dotted(settings, {"data.providers.binance.max_retries": args.retries})
+    return settings
+
+
+def _cmd_data_check(args: argparse.Namespace) -> int:
+    from rsidiv.data.base import DataProvider
+    from rsidiv.data.binance import MarketType
+    from rsidiv.data.check import render_markdown, run_crypto_check
+    from rsidiv.data.factory import binance_provider, binance_rest, resolve_project_path
+
+    settings = _crypto_settings(args)
+    source = args.source or settings.data.providers.binance.history_source
+    markets = args.markets or [settings.universe.crypto.market_type]
+    start, end = _period(settings, args.start, args.end)
+    providers: dict[MarketType, DataProvider] = {
+        m: binance_provider(settings, m, source=source, cached=not args.no_cache) for m in markets
+    }
+    filters = {m: binance_rest(settings, m) for m in markets} if not args.skip_filters else None
+    report = run_crypto_check(
+        settings, providers, source=source, start=start, end=end, filters_providers=filters
+    )
+    text = render_markdown(report)
+    out_dir = resolve_project_path(settings.base.paths.report_dir) / "data_check"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"data_check_{report.generated_at:%Y%m%dT%H%M%SZ}.md"
+    out_path.write_text(text, encoding="utf-8")
+    print(text)
+    print(f"보고서 저장: {out_path}")
+    return 0 if not any(r.errors for r in report.results) else 2
+
+
+def _cmd_fetch(args: argparse.Namespace) -> int:
+    from rsidiv.data.base import DataSourceError
+    from rsidiv.data.factory import binance_provider
+
+    settings = _crypto_settings(args)
+    markets = args.markets or [settings.universe.crypto.market_type]
+    start, end = _period(settings, args.start, args.end)
+    failed = False
+    for market in markets:
+        provider = binance_provider(settings, market, source=args.source)
+        for symbol in settings.universe.crypto.symbols:
+            try:
+                frame = provider.fetch_ohlcv(symbol, settings.data.timeframe, start, end)
+                span = f"{frame.index[0]} ~ {frame.index[-1]}" if len(frame) else "데이터 없음"
+                print(f"[{market}] {symbol} {settings.data.timeframe}: {len(frame)}봉 ({span})")
+                if market == "usdm_futures":
+                    funding = provider.funding_rates(symbol, start, end)
+                    print(f"[{market}] {symbol} funding: {len(funding)}건")
+            except DataSourceError as exc:
+                failed = True
+                print(f"[{market}] {symbol} 실패: {exc}", file=sys.stderr)
+    return 2 if failed else 0
+
+
+def _add_crypto_args(cmd: argparse.ArgumentParser) -> None:
+    from rsidiv.data.binance import MarketType
+
+    cmd.add_argument("--config-dir", default=None)
+    cmd.add_argument("--markets", nargs="+", choices=get_args(MarketType), default=None,
+                     help="점검할 시장 (기본: universe.yaml 의 market_type)")
+    cmd.add_argument("--source", choices=["rest", "vision"], default=None,
+                     help="데이터 출처 (기본: data.yaml 의 history_source)")
+    cmd.add_argument("--start", default=None, help="YYYY-MM-DD (기본: backtest_period.start)")
+    cmd.add_argument("--end", default=None, help="YYYY-MM-DD, 미포함 (기본: 현재)")
+    cmd.add_argument("--retries", type=int, default=None, help="재시도 횟수 덮어쓰기")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="rsidiv")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -54,7 +145,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     secrets_cmd = sub.add_parser("secrets", help="비밀정보 설정 여부 (이름만)")
     secrets_cmd.add_argument("--env-file", default=".env")
 
+    check_cmd = sub.add_parser("data-check", help="바이낸스 데이터 확보 가능 여부 점검")
+    _add_crypto_args(check_cmd)
+    check_cmd.add_argument("--no-cache", action="store_true", help="캐시를 쓰지 않고 원천에서 직접 조회")
+    check_cmd.add_argument("--skip-filters", action="store_true", help="거래소 주문 필터 조회 생략")
+
+    fetch_cmd = sub.add_parser("fetch", help="바이낸스 데이터 다운로드 → Parquet 캐시")
+    _add_crypto_args(fetch_cmd)
+
     args = parser.parse_args(argv)
+
+    if args.command == "data-check":
+        return _cmd_data_check(args)
+    if args.command == "fetch":
+        return _cmd_fetch(args)
 
     if args.command == "config":
         try:

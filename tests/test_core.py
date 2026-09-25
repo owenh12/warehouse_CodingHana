@@ -75,8 +75,8 @@ def test_kst_display_and_bar_close() -> None:
 
 def test_order_request_validation() -> None:
     now = dt.datetime(2025, 1, 2, tzinfo=UTC)
-    common = dict(client_id="c1", symbol="BTC/USDT", asset_class=AssetClass.CRYPTO,
-                  side=Side.SELL, qty=0.01, purpose=OrderPurpose.STOP_LOSS, created_at=now)
+    common = {"client_id": "c1", "symbol": "BTC/USDT", "asset_class": AssetClass.CRYPTO,
+              "side": Side.SELL, "qty": 0.01, "purpose": OrderPurpose.STOP_LOSS, "created_at": now}
     with pytest.raises(ValueError, match="stop_price"):
         OrderRequest(order_type=OrderType.STOP_MARKET, **common)  # type: ignore[arg-type]
     req = OrderRequest(order_type=OrderType.STOP_MARKET, stop_price=90000.0, **common)  # type: ignore[arg-type]

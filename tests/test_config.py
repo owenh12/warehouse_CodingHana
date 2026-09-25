@@ -146,7 +146,7 @@ def test_search_space_keys_must_exist(raw_config: dict[str, Any]) -> None:
         raw_config,
         {"optimize": {"search_space": {"pivot.lft": {"type": "int", "low": 1, "high": 3}}}},
     )
-    with pytest.raises(ValidationError, match="pivot.lft"):
+    with pytest.raises(ValidationError, match=r"pivot\.lft"):
         Settings.model_validate(bad)
 
 

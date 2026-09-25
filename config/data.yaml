@@ -16,13 +16,19 @@ providers:
       real: 15
       virtual: 2
     market_division: J          # J = KRX
-    source_timeframe: 1m        # KIS 분봉(1분) → 15분봉 리샘플
+    source_timeframe: 1m        # KIS 분봉(1분) → 15분봉 리샘플 (주식은 보류 중)
     adjust_prices: true         # 액면분할·병합: 일봉 수정주가/원주가 비율로 분봉 보정
-  ccxt:
-    exchange_id: binance
-    enable_rate_limit: true
+  binance:
+    history_source: rest        # rest: ccxt REST API | vision: data.binance.vision 월·일별 아카이브
     source_timeframe: 15m       # 바이낸스는 15m 네이티브 제공 (1m 리샘플과 교차검증 가능)
-    bulk_download: true         # 대량 과거 구간은 data.binance.vision 월별 파일 우선 사용
+    enable_rate_limit: true     # ccxt 내장 요청 간격 제어
+    page_limit: 1000            # 요청당 최대 행 수 (바이낸스 한도 1000)
+    timeout_sec: 30
+    max_retries: 3              # 일시적 네트워크 오류 재시도 횟수
+    retry_backoff_sec: 2.0      # 재시도 대기 시작값 (2, 4, 8초 …)
+    spot_public_api: null       # 지역 차단 시 "https://data-api.binance.vision/api/v3" (현물 시세 전용)
+    vision_base_url: https://data.binance.vision
+    vision_verify_checksum: true
 
 fx:
   pair: USD/KRW
