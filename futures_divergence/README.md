@@ -7,8 +7,9 @@
 |---|---|---|
 | 1 | 구조·설정 설계 (config/*.yaml 9개, 스키마 검증) | 완료 |
 | 2 | 데이터 확보 점검, 데이터 계층, RSI·ATR·피벗, 단위 테스트 | 완료 ([보고서](docs/STAGE2_DATA_REPORT.md)) |
-| 3 | 신호 생성 + 시각 검증 (BTCUSDT, 최근 12개월, 4개 TF) | 승인 대기 |
-| 4~7 | 백테스트 · 검증 · 페이퍼 · 실거래 | — |
+| 3 | 신호 생성 + 시각 검증 (BTCUSDT, 최근 12개월, 4개 TF) | 완료 ([보고서](docs/STAGE3_SIGNALS_REPORT.md)) |
+| 4 | 백테스트 | 승인 대기 |
+| 5~7 | 검증 · 페이퍼 · 실거래 | — |
 
 ## 설치
 
@@ -28,6 +29,7 @@ python -m perpdiv secrets                               # .env 키 설정 여부
 python -m perpdiv data-check --sample-month 2024-03,2026-08   # 데이터 확보 점검 → storage/reports/data_check/
 python -m perpdiv resample-check --months 2024-03,2025-06   # 5분봉 리샘플 vs 원본 15m/1h/4h/1d 대조
 python -m perpdiv source-check --days 3                 # 아카이브 vs 거래소 REST 5분봉 대조 (국내 PC 에서)
+python -m perpdiv signals --symbol BTCUSDT --months 12  # 신호 CSV·개요/개별 차트·요약 → storage/reports/signals/
 ```
 
 ## 테스트·정적 검사
@@ -48,7 +50,9 @@ src/perpdiv/
   data/        아카이브(data.binance.vision, SHA-256 검증)·ccxt REST, 월 파티션 Parquet 캐시, 리샘플,
                품질 규칙(결측·중복·거래 중단·상장폐지), 심볼 해석, 거래대금 순위, 확보 점검
   indicators/  Wilder RSI·ATR (일괄·증분 비트 단위 동일), 피벗(동률 규칙·확정 시점)
-  signals/ backtest/ optimize/ risk/ broker/ live/ reports/   (3단계 이후)
+  signals/     다이버전스 구조 추적기 (강세 t1→p2→t3, 약세 p1→t2→p3), 신호 레코드, 판정 집계
+  reports/     신호 시각 검증 차트·요약
+  backtest/ optimize/ risk/ broker/ live/   (4단계 이후)
 tests/       단위 테스트
 storage/     캐시·보고서·상태 DB (git 제외)
 ```

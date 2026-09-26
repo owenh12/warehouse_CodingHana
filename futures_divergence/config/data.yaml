@@ -7,7 +7,7 @@ timeframes:
 
 backtest_period:
   start: 2024-01-01
-  end: null                     # null = 실행 시점의 마지막 마감 봉
+  end: last_month_end           # 지난달 말일까지 (사용자 결정: 이번 달은 펀딩비 월 파일이 없으므로 제외) | now | YYYY-MM-DD(포함)
 warmup_days: 200                # 지표 안정화용 선행 구간 (1d RSI·ATR 워밍업 포함). 이 구간의 신호는 집계하지 않음
 
 providers:

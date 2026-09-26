@@ -24,7 +24,7 @@ import numpy as np
 import pandas as pd
 
 from perpdiv.core.config import Settings, resolve_project_path
-from perpdiv.core.timeutil import UTC, utc_now
+from perpdiv.core.timeutil import utc_now
 from perpdiv.data.cache import ArchiveCache
 from perpdiv.data.quality import check_ohlcv
 from perpdiv.data.resample import resample_ohlcv
@@ -104,10 +104,7 @@ def run_data_check(settings: Settings, *, sample_months: Sequence[str], workers:
                    log: Callable[[str], None] = print, clock: Callable[[], dt.datetime] = utc_now) -> DataCheck:
     uni = settings.universe
     now = clock()
-    start = dt.datetime.combine(settings.data.backtest_period.start, dt.time(), tzinfo=UTC)
-    end_date = settings.data.backtest_period.end
-    end = dt.datetime.combine(end_date, dt.time(), tzinfo=UTC) if end_date else now.replace(
-        minute=0, second=0, microsecond=0)
+    start, end = settings.data.backtest_period.bounds(now)
     archive = build_archive(settings, clock)
     cache = build_cache(settings, archive, workers)
 

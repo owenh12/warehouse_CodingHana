@@ -20,8 +20,8 @@ atr:
 pivot:                          # t1·p2(강세), p1·t2(약세)에만 적용. t3·p3 는 이탈 확정 방식
   left: 1                       # L
   right: 1                      # R = 피벗 확정 지연 봉 수
-  tie_rule: strict              # strict: 좌우 모든 봉보다 엄격히 낮아야(높아야) 피벗 → 동일값이 이웃에 있으면 피벗 아님
-                                # first: 왼쪽은 엄격, 오른쪽은 같음 허용 → 동일값이 이어지면 첫 봉만 피벗
+  tie_rule: first               # first: 왼쪽은 엄격, 오른쪽은 같음 허용 → 동일값이 이어지면 첫 봉만 피벗 (사용자 결정, 2단계 후)
+                                # strict: 좌우 모든 봉보다 엄격히 낮아야(높아야) 피벗 → 동일값이 이웃에 있으면 피벗 아님
 
 bullish:
   enabled: true
@@ -34,6 +34,7 @@ bearish:
 structure:
   anchor_candidates: all        # t1(p1) 후보를 모두 독립 추적 (사용자 결정)
   same_bar_signals: one_latest_anchor   # 한 봉에서 여러 구조가 동시에 성립하면 신호 1건, 가장 최근 t1(p1)을 기록
+  anchor_must_be_extreme: false # true: t1 이 [t1, p2] 구간 최저가여야 함 (약세: p1 이 [p1, t2] 최고가). 요구사항에 없는 조건 → 3단계 확인 대기
   gap_bars:                     # t1~t3 (p1~p3) 간격, 신호 타임프레임 봉 수
     max_enabled: true
     max: 60

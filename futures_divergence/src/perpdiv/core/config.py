@@ -195,13 +195,32 @@ class TimeframesCfg(_Model):
 
 class BacktestPeriodCfg(_Model):
     start: dt.date
-    end: dt.date | None
+    end: dt.date | Literal["last_month_end", "now"]  # 날짜는 그날까지 포함
 
     @model_validator(mode="after")
     def _ordered(self) -> BacktestPeriodCfg:
-        if self.end is not None and self.end <= self.start:
+        if isinstance(self.end, dt.date) and self.end < self.start:
             raise ValueError("backtest_period.end 는 start 이후여야 합니다")
         return self
+
+    def bounds(self, now: dt.datetime) -> tuple[dt.datetime, dt.datetime]:
+        """백테스트 구간 [시작, 끝) (UTC).
+
+        - ``last_month_end``: 이번 달 1일 00:00 UTC 직전까지 (지난달 말일 포함). 펀딩비 월 파일이 있는 마지막 달.
+        - ``now``: 현재 시각을 정시로 내림.
+        - 날짜: 그날 24:00 UTC 까지.
+        """
+        start = dt.datetime.combine(self.start, dt.time(), tzinfo=dt.UTC)
+        now = now.astimezone(dt.UTC)
+        if self.end == "last_month_end":
+            end = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        elif self.end == "now":
+            end = now.replace(minute=0, second=0, microsecond=0)
+        else:
+            end = dt.datetime.combine(self.end + dt.timedelta(days=1), dt.time(), tzinfo=dt.UTC)
+        if end <= start:
+            raise ValueError(f"백테스트 구간이 비어 있습니다: {start} ~ {end}")
+        return start, end
 
 
 class BinanceProviderCfg(_Model):
@@ -300,6 +319,7 @@ class GapBarsCfg(_Model):
 class StructureCfg(_Model):
     anchor_candidates: Literal["all"]
     same_bar_signals: Literal["one_latest_anchor"]
+    anchor_must_be_extreme: bool  # true: t1 = min Low[t1..p2] (약세 p1 = max High[p1..t2]) 이어야 신호
     gap_bars: GapBarsCfg
 
 

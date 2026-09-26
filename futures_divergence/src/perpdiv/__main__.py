@@ -5,6 +5,7 @@
 - ``data-check``: 데이터 확보 점검 (심볼·순위·후보군·TradFi·용량·펀딩비·상장폐지) → Markdown 보고서
 - ``resample-check``: 5분봉 리샘플 결과를 아카이브 원본 15m/1h/4h/1d 와 비교 → CSV
 - ``source-check``: 아카이브 봉 vs 거래소 REST 봉 (국내 PC 에서 실행; 이 원격 환경은 fapi 지역 차단)
+- ``signals``: 한 심볼의 최근 N개월 다이버전스 신호 → CSV·개요/개별 차트·요약 (3단계 시각 검증)
 """
 
 from __future__ import annotations
@@ -28,7 +29,7 @@ def summarize(s: Settings) -> str:
         f"유니버스: 거래대금 상위 {s.universe.top_n} 코인 (직전 {s.universe.ranking.window_hours}h, "
         f"{'+'.join(s.universe.ranking.rank_quote_assets)} 합산, 주문 {s.universe.trading.quote_asset})",
         f"데이터: 수집 {tfs.collect}, 신호 {tfs.signal}, 실행 {tfs.execution}, 기간 {s.data.backtest_period.start} ~ "
-        f"{s.data.backtest_period.end or '현재'}",
+        f"{ {'last_month_end': '지난달 말', 'now': '현재'}.get(str(s.data.backtest_period.end), str(s.data.backtest_period.end))}",
         f"피벗 L={st.pivot.left} R={st.pivot.right} ({st.pivot.tie_rule}), RSI {st.rsi.period}, "
         f"강세 <{st.bullish.oversold:g}·약세 >{st.bearish.overbought:g}, 최대 간격 "
         f"{st.structure.gap_bars.max if st.structure.gap_bars.max_enabled else '-'}봉",
@@ -123,6 +124,27 @@ def _source_check(args: argparse.Namespace) -> int:
     return 0 if bool(table["ok"].all()) else 1
 
 
+def _signals(args: argparse.Namespace) -> int:
+    from pathlib import Path
+
+    from perpdiv.core.timeutil import utc_now
+    from perpdiv.data.check import build_archive, build_cache
+    from perpdiv.data.store import MarketData
+    from perpdiv.reports.signal_run import run_signal_check
+
+    settings = load_settings(args.config_dir, args.override)
+    market = MarketData(settings, build_cache(settings, build_archive(settings)))
+    timeframes = args.timeframes.split(",") if args.timeframes else list(settings.data.timeframes.signal)
+    results, out = run_signal_check(settings, market, symbol=args.symbol, months=args.months, timeframes=timeframes,
+                                    now=utc_now(), out_dir=Path(args.out) if args.out else None,
+                                    charts=not args.no_charts)
+    for r in results:
+        longs = sum(s.side == "long" for s in r.signals)
+        print(f"{r.timeframe:>4}: 봉 {r.bars:,}  롱 {longs}  숏 {len(r.signals) - longs}")
+    print(f"결과: {out}")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="perpdiv")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -144,8 +166,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     src.add_argument("--config-dir", default=None)
     src.add_argument("--symbols", default="BTCUSDT,ETHUSDT,SOLUSDT")
     src.add_argument("--days", type=int, default=3, help="어제까지 며칠 (아카이브 일 파일이 있는 범위)")
+    sg = sub.add_parser("signals", help="최근 N개월 신호 + 시각 검증 차트")
+    sg.add_argument("--config-dir", default=None)
+    sg.add_argument("--symbol", default="BTCUSDT")
+    sg.add_argument("--months", type=int, default=12)
+    sg.add_argument("--timeframes", default=None, help="기본: data.yaml 의 신호 TF")
+    sg.add_argument("--out", default=None, help="기본: storage/reports/signals/<symbol>")
+    sg.add_argument("--no-charts", action="store_true")
+    sg.add_argument("--override", action="append", default=[], help="실험용 덮어쓰기 YAML (config 명령과 같음)")
     args = parser.parse_args(argv)
 
+    if args.command == "signals":
+        return _signals(args)
     if args.command == "source-check":
         return _source_check(args)
     if args.command == "data-check":

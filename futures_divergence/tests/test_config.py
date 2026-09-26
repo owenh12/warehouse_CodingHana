@@ -28,7 +28,8 @@ def test_defaults_load() -> None:
     s = load_settings()
     assert s.universe.top_n == 10 and s.base.exchange.leverage == 1
     assert s.data.timeframes.signal == ["15m", "1h", "4h", "1d"]
-    assert s.strategy.pivot.left == 1 and s.strategy.pivot.right == 1
+    assert s.strategy.pivot.left == 1 and s.strategy.pivot.right == 1 and s.strategy.pivot.tie_rule == "first"
+    assert s.data.backtest_period.end == "last_month_end"
     assert s.strategy.exit.time_exit.bars == 60 and s.strategy.exit.stop.atr_mult == 2.5
     assert s.costs.fees.rate("maker") == 0.0002 and s.costs.fees.rate("taker") == 0.0005
 
@@ -69,8 +70,8 @@ def test_override_and_strategy_with(tmp_path: Path) -> None:
     override.write_text("strategy:\n  pivot:\n    left: 3\n", encoding="utf-8")
     s = load_settings(overrides=[override])
     assert s.strategy.pivot.left == 3
-    changed = s.strategy_with({"exit.stop.atr_mult": 1.5, "pivot.tie_rule": "first"})
-    assert changed.exit.stop.atr_mult == 1.5 and changed.pivot.tie_rule == "first"
+    changed = s.strategy_with({"exit.stop.atr_mult": 1.5, "pivot.tie_rule": "strict"})
+    assert changed.exit.stop.atr_mult == 1.5 and changed.pivot.tie_rule == "strict"
     with pytest.raises(KeyError):
         s.strategy_with({"pivot.middle": 1})
     bad = tmp_path / "bad.yaml"
@@ -88,3 +89,21 @@ def test_secrets_are_masked(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     assert secrets.binance_api_key is not None and secrets.binance_api_key.get_secret_value() == "abc123"
     assert "abc123" not in repr(secrets) and "shh" not in str(secrets)
     assert secrets.telegram_chat_id is not None and secrets.telegram_bot_token is None
+
+
+def test_backtest_period_bounds() -> None:
+    import datetime as dt
+
+    from perpdiv.core.config import BacktestPeriodCfg
+
+    now = dt.datetime(2026, 9, 26, 12, 34, tzinfo=dt.UTC)
+    utc = dt.UTC
+    assert BacktestPeriodCfg(start=dt.date(2024, 1, 1), end="last_month_end").bounds(now) == (
+        dt.datetime(2024, 1, 1, tzinfo=utc), dt.datetime(2026, 9, 1, tzinfo=utc))
+    assert BacktestPeriodCfg(start=dt.date(2024, 1, 1), end="now").bounds(now)[1] == dt.datetime(2026, 9, 26, 12, tzinfo=utc)
+    assert BacktestPeriodCfg(start=dt.date(2024, 1, 1), end=dt.date(2024, 6, 30)).bounds(now)[1] == dt.datetime(
+        2024, 7, 1, tzinfo=utc)
+    with pytest.raises(ValueError):
+        BacktestPeriodCfg(start=dt.date(2024, 1, 1), end=dt.date(2023, 12, 31))
+    with pytest.raises(ValueError):
+        BacktestPeriodCfg(start=dt.date(2026, 9, 5), end="last_month_end").bounds(now)
