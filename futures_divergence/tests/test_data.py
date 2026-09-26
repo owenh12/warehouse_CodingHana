@@ -535,6 +535,12 @@ def test_compare_detects_mismatches() -> None:
     bad = compare(resample_ohlcv(broken, "1h", source_timeframe="5m"), native.iloc[1:], symbol="X", timeframe="1h",
                   month="2025-01", source_timeframe="5m")
     assert (bad.partial_buckets, bad.only_resampled, bad.price_mismatches, bad.ok) == (1, 1, 1, False)
+    from perpdiv.data.validate import compare_sources
+
+    assert compare_sources(source, source.copy(), symbol="X", timeframe="5m", label="d").ok
+    shifted = source.copy()
+    shifted.loc[shifted.index[3], "volume"] *= 1.001
+    assert not compare_sources(source, shifted, symbol="X", timeframe="5m", label="d").ok
 
 
 @pytest.mark.skipif(not os.environ.get("PERPDIV_NETWORK_TESTS"), reason="PERPDIV_NETWORK_TESTS=1 일 때만 (아카이브 접속)")

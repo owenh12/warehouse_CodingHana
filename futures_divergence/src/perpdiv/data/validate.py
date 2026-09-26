@@ -95,3 +95,10 @@ def check_resample(cache: ArchiveCache, symbols: Sequence[str], months: Sequence
 def to_frame(checks: Sequence[ResampleCheck]) -> pd.DataFrame:
     rows = [{f: getattr(c, f) for f in ResampleCheck.__slots__} | {"ok": c.ok} for c in checks]
     return pd.DataFrame(rows)
+
+
+def compare_sources(archive: pd.DataFrame, rest: pd.DataFrame, *, symbol: str, timeframe: str,
+                    label: str) -> ResampleCheck:
+    """같은 TF 의 아카이브 봉 vs 거래소 REST 봉 (국내 PC 에서 아카이브가 거래소와 같은지 확인)."""
+    left = archive.assign(bars=1)
+    return compare(left, rest, symbol=symbol, timeframe=timeframe, month=label, source_timeframe=timeframe)

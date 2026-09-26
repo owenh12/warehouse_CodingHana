@@ -23,10 +23,11 @@ cp .env.example .env                                    # 키는 .env 에만. �
 
 ```bash
 python -m perpdiv config                                # 설정 9개 파일 검증 + 요약
-python -m perpdiv config --override strategy.pivot.left=2   # 임시 덮어쓰기로 검증
+python -m perpdiv config --override exp.yaml            # 실험용 덮어쓰기 YAML (예: strategy: {pivot: {left: 2}})
 python -m perpdiv secrets                               # .env 키 설정 여부 (이름만 출력)
-python -m perpdiv data-check --sample-month 2026-08     # 데이터 확보 점검 → storage/reports/data_check/
+python -m perpdiv data-check --sample-month 2024-03,2026-08   # 데이터 확보 점검 → storage/reports/data_check/
 python -m perpdiv resample-check --months 2024-03,2025-06   # 5분봉 리샘플 vs 원본 15m/1h/4h/1d 대조
+python -m perpdiv source-check --days 3                 # 아카이브 vs 거래소 REST 5분봉 대조 (국내 PC 에서)
 ```
 
 ## 테스트·정적 검사

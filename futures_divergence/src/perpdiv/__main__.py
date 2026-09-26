@@ -4,6 +4,7 @@
 - ``secrets`` : .env 키 설정 여부 (이름만, 값은 출력하지 않음)
 - ``data-check``: 데이터 확보 점검 (심볼·순위·후보군·TradFi·용량·펀딩비·상장폐지) → Markdown 보고서
 - ``resample-check``: 5분봉 리샘플 결과를 아카이브 원본 15m/1h/4h/1d 와 비교 → CSV
+- ``source-check``: 아카이브 봉 vs 거래소 REST 봉 (국내 PC 에서 실행; 이 원격 환경은 fapi 지역 차단)
 """
 
 from __future__ import annotations
@@ -89,6 +90,39 @@ def _resample_check(args: argparse.Namespace) -> int:
     return 0 if bool(table["ok"].all()) else 1
 
 
+def _source_check(args: argparse.Namespace) -> int:
+    import datetime as dt
+
+    from perpdiv.core.timeutil import utc_now
+    from perpdiv.data.base import DataSourceError
+    from perpdiv.data.check import build_archive, build_cache
+    from perpdiv.data.rest import RestProvider, ccxt_retry_policy, create_exchange
+    from perpdiv.data.validate import compare_sources, to_frame
+    from perpdiv.data.vision import Dataset
+
+    settings = load_settings(args.config_dir)
+    cfg = settings.data.providers.binance
+    tf = settings.data.timeframes.collect
+    end = utc_now().replace(hour=0, minute=0, second=0, microsecond=0) - dt.timedelta(days=1)
+    start = end - dt.timedelta(days=args.days)
+    cache = build_cache(settings, build_archive(settings))
+    provider = RestProvider(create_exchange(enable_rate_limit=cfg.enable_rate_limit, timeout_sec=cfg.timeout_sec),
+                            retry=ccxt_retry_policy(cfg.max_retries, cfg.retry_backoff_sec), page_limit=cfg.page_limit)
+    checks = []
+    for symbol in args.symbols.split(","):
+        archived = cache.get(Dataset("klines", symbol, tf), start, end)
+        try:
+            live = provider.klines(symbol, tf, start, end)
+        except DataSourceError as exc:
+            print(f"REST 접근 실패: {exc}", file=sys.stderr)
+            return 2
+        checks.append(compare_sources(archived, live, symbol=symbol, timeframe=tf,
+                                      label=f"{start:%Y-%m-%d}~{end:%Y-%m-%d}"))
+    table = to_frame(checks)
+    print(table.to_string(index=False))
+    return 0 if bool(table["ok"].all()) else 1
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="perpdiv")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -106,8 +140,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     rs.add_argument("--config-dir", default=None)
     rs.add_argument("--symbols", default="BTCUSDT,ETHUSDT,SOLUSDT,DOGEUSDT,1000PEPEUSDT")
     rs.add_argument("--months", default="2024-03,2025-06", help="YYYY-MM,YYYY-MM,...")
+    src = sub.add_parser("source-check", help="아카이브 봉 vs 거래소 REST 봉 (국내 PC)")
+    src.add_argument("--config-dir", default=None)
+    src.add_argument("--symbols", default="BTCUSDT,ETHUSDT,SOLUSDT")
+    src.add_argument("--days", type=int, default=3, help="어제까지 며칠 (아카이브 일 파일이 있는 범위)")
     args = parser.parse_args(argv)
 
+    if args.command == "source-check":
+        return _source_check(args)
     if args.command == "data-check":
         return _data_check(args)
     if args.command == "resample-check":
