@@ -24,11 +24,17 @@ T0 = pd.Timestamp("2025-01-06 00:00", tz="UTC")  # 월요일 09:00 KST
 Q = pd.Timedelta(minutes=15)
 
 
-def settings_with(tmp_path: Path, patch: dict[str, Any] | None = None) -> Settings:
-    if not patch:
+# 기존 규칙(단일 TF 진입, 신호 봉 기준 손절, 최소 손절폭 없음)으로 체결 로직을 시험한다. 새 규칙은 아래 별도 테스트.
+LEGACY: dict[str, Any] = {"strategy": {"confluence": {"enabled": False},
+                                       "exit": {"stop": {"basis": "signal_bar", "min_distance_pct": 0.0}}}}
+
+
+def settings_with(tmp_path: Path, patch: dict[str, Any] | None = None, *, legacy: bool = True) -> Settings:
+    merged = deep_merge(LEGACY if legacy else {}, patch or {})
+    if not merged:
         return load_settings()
-    path = tmp_path / "patch.yaml"
-    path.write_text(yaml.safe_dump(deep_merge({}, patch)), encoding="utf-8")
+    path = tmp_path / f"patch_{abs(hash(repr(merged)))}.yaml"
+    path.write_text(yaml.safe_dump(merged), encoding="utf-8")
     return load_settings(overrides=[path])
 
 
@@ -89,8 +95,8 @@ def run(settings: Settings, market: FakeMarket, sigs: list[dict[str, Any]], scen
 
 
 @pytest.fixture()
-def cfg() -> Settings:
-    return load_settings()
+def cfg(tmp_path: Path) -> Settings:
+    return settings_with(tmp_path)
 
 
 def test_long_target_fill_fees_and_slippage(cfg: Settings) -> None:
@@ -269,7 +275,7 @@ def test_switch_on_opposite_signal(tmp_path: Path) -> None:
     res = run(s, market, [signal(T0), signal(T0 + Q * 3, side="short", high=100.5)])
     assert res.trades.iloc[0].exit_reason == "switch" and res.trades.iloc[0].exit_time == T0 + Q * 3
     assert res.signals["status"].tolist() == ["entered", "entered"]
-    ignore = run(load_settings(), market, [signal(T0), signal(T0 + Q * 3, side="short", high=100.5)])
+    ignore = run(settings_with(tmp_path), market, [signal(T0), signal(T0 + Q * 3, side="short", high=100.5)])
     assert ignore.signals["status"].tolist() == ["entered", "skipped_holding"]
 
 
@@ -312,3 +318,67 @@ def test_metrics_basics() -> None:
     st = trade_stats(trades)
     assert st["win_rate"] == 0.5 and st["payoff"] == pytest.approx(3.0) and st["expectancy_r"] == pytest.approx(0.5)
     assert st["profit_factor"] == pytest.approx(3.0)
+
+
+
+# --- 전략 수정 후 규칙: 다중 TF 동시 성립, 진입가 기준 손절, 최소 손절폭 ---------------------------------------------
+
+
+def test_confluence_annotation() -> None:
+    from perpdiv.signals.confluence import annotate_confluence
+
+    s = load_settings().strategy  # validity_bars 3
+    sigs = pd.DataFrame([
+        signal(T0, tf="1h"),                                   # 0: 혼자 → 1
+        signal(T0 + Q * 2, tf="15m"),                          # 1: 1h(T0~T0+3h) 유효 → 2 (1h+15m)
+        signal(T0 + Q * 3, tf="15m"),                          # 2: 같은 TF 15m 여러 개는 1개 → 2
+        signal(T0 + pd.Timedelta(hours=3), tf="15m"),          # 3: 1h·15m 만료(끝 미포함), 6번 4h(~T0+13h30m) 유효 → 2
+        signal(T0 + Q * 4, tf="15m", side="short"),            # 4: 반대 방향은 안 셈 → 1
+        signal(T0 + Q * 5, tf="4h", symbol="BBBUSDT"),         # 5: 다른 코인 → 1
+        signal(T0 + Q * 6, tf="4h"),                           # 6: T0+1h30m
+    ])
+    out = annotate_confluence(sigs, s)
+    assert out["confluence"].tolist()[:6] == [1, 2, 2, 2, 1, 1]
+    assert out["confluence_tfs"].iloc[3] == "4h+15m"
+    # 6번 시각 T0+1h30m: 1h(유효), 15m 2번(T0+45m ~ T0+1h30m, 끝 미포함 → 만료), 1번(T0+30m~T0+1h15m 만료) → 4h+1h
+    assert out["confluence"].iloc[6] == 2 and out["confluence_tfs"].iloc[6] == "4h+1h"
+    assert out["confluence_tfs"].iloc[1] == "1h+15m"
+    same_time = annotate_confluence(pd.DataFrame([signal(T0, tf="1d"), signal(T0, tf="4h")]), s)
+    assert same_time["confluence"].tolist() == [2, 2]  # 같은 시각 확정도 서로 센다
+
+
+def test_confluence_gate_and_entry_stop(tmp_path: Path) -> None:
+    s = settings_with(tmp_path, legacy=False)
+    assert s.strategy.confluence.enabled and s.strategy.exit.stop.basis == "entry_price"
+    market = FakeMarket()
+    market.frames["AAAUSDT"] = bars_from([(100, 100.5, 99.5, 100)] * 12 + [(100, 102, 90, 91)] * 4)
+    sigs = [signal(T0, tf="1h", atr=0.8), signal(T0 + Q * 2, tf="15m", atr=0.4)]
+    res = run(s, market, sigs)
+    assert res.signals["status"].tolist() == ["no_confluence", "entered"]
+    tr = res.trades.iloc[0]
+    entry = 100 * 1.0002
+    assert tr.timeframe == "15m" and tr.confluence_tfs == "1h+15m"
+    assert tr.stop == pytest.approx(entry - 2.5 * 0.4)  # 진입가 − 2.5 × ATR(확정 신호 15m)
+    assert tr.target == pytest.approx(entry + 2 * 2.5 * 0.4)
+    assert tr.exit_reason == "stop" and tr.exit_time == T0 + Q * 12
+
+
+def test_min_stop_distance_filter(tmp_path: Path) -> None:
+    s = settings_with(tmp_path, legacy=False)
+    market = FakeMarket()
+    market.frames["AAAUSDT"] = bars_from([(100, 100.5, 99.5, 100)] * 30)
+    # 손절폭 2.5 × ATR: ATR 0.2 → 0.5 = 진입가(100)의 0.5% → "보다 커야" 하므로 불성립. ATR 0.21 → 0.525 → 진입
+    tight = run(s, market, [signal(T0, tf="1h", atr=0.2), signal(T0 + Q, tf="15m", atr=0.2)])
+    assert tight.signals["status"].tolist() == ["no_confluence", "skipped_stop_too_tight"]
+    ok = run(s, market, [signal(T0, tf="1h", atr=0.2), signal(T0 + Q, tf="15m", atr=0.21)])
+    assert ok.signals["status"].tolist() == ["no_confluence", "entered"]
+
+
+def test_time_exit_uses_trigger_timeframe(tmp_path: Path) -> None:
+    s = settings_with(tmp_path, {"strategy": {"exit": {"time_exit": {"bars": 2}}}}, legacy=False)
+    market = FakeMarket()
+    market.frames["AAAUSDT"] = bars_from([(100, 100.5, 99.5, 100)] * 40)
+    # 15m 이 먼저, 1h 가 45분 안에 확정 → 확정 신호 = 1h → 시간 청산 2 × 1h
+    res = run(s, market, [signal(T0, tf="15m", atr=1.0), signal(T0 + Q * 2, tf="1h", atr=1.0)])
+    tr = res.trades.iloc[0]
+    assert tr.timeframe == "1h" and tr.exit_reason == "time" and tr.exit_time == T0 + Q * 2 + pd.Timedelta(hours=2)

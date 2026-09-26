@@ -6,7 +6,10 @@
 체결 규칙
 - 진입: 신호 시각(= t3 마감)에 시작하는 15분봉 시가, 시장가(테이커) + 불리한 슬리피지.
   수량 = 평가금액 × equity_fraction × 레버리지 × (1 − fee_buffer) ÷ 신호 봉 종가, 수량 단위로 내림.
-- 손절: 스탑마켓(테이커 + 슬리피지). 시가가 이미 손절가보다 불리하면 시가 체결(갭).
+- 진입 조건(전략 수정 후): 신호 시각 순위 ≤ top_n, 같은 코인·방향으로 유효한 서로 다른 TF 신호 ≥ min_timeframes
+  (signals/confluence.py), 손절폭 > 진입가 × min_distance_pct (신호 봉 종가로 판정).
+- 손절: 진입가 ∓ ATR(확정 신호 TF)×mult (basis=entry_price) 또는 Low(t3)/High(p3) 기준(signal_bar).
+  스탑마켓(테이커 + 슬리피지). 시가가 이미 손절가보다 불리하면 시가 체결(갭).
 - 익절(r_multiple·structure): 대기 지정가(메이커, 슬리피지 없음), 가격이 닿으면 지정가 체결.
 - 트레일링: 손절선이 15분봉 마감마다 (진입 후 최고가 − ATR×배수) 로 올라가고(숏 대칭) 다음 봉부터 적용. 익절 주문 없음.
 - 같은 봉에서 손절·익절이 모두 닿으면 손절 우선. 정밀 모드면 그 15분 구간의 1분봉으로 순서를 판정.
@@ -34,6 +37,7 @@ import pandas as pd
 from perpdiv.backtest.instruments import Instrument
 from perpdiv.backtest.market import ExecBars
 from perpdiv.core.config import Settings, timeframe_minutes
+from perpdiv.signals.confluence import annotate_confluence
 
 ExitReason = Literal["stop", "stop_gap", "target", "trailing_stop", "time", "liquidation", "delisted",
                      "end_of_period", "kill_switch", "switch", "target_passed"]
@@ -72,6 +76,7 @@ class _Position:
     signal_time: pd.Timestamp
     entry_time: pd.Timestamp
     entry_price: float
+    confluence_tfs: str
     qty: float
     stop: float
     initial_stop: float
@@ -102,6 +107,7 @@ class Trade:
     timeframe: str
     side: str
     rank: float
+    confluence_tfs: str
     signal_time: pd.Timestamp
     entry_time: pd.Timestamp
     entry_price: float
@@ -233,6 +239,21 @@ class BacktestEngine:
 
     # --- 진입 --------------------------------------------------------------------------------------------
 
+    def _stop_price(self, sig: pd.Series, entry: float) -> float:
+        """손절가: basis=entry_price 면 진입가 ∓ ATR×mult, signal_bar 면 Low(t3) − ATR×mult (숏 High(p3) + …)."""
+        stop_cfg = self.s.strategy.exit.stop
+        side = 1 if sig["side"] == "long" else -1
+        distance = stop_cfg.atr_mult * float(sig["trigger_atr"])
+        if stop_cfg.basis == "entry_price":
+            return entry - side * distance
+        return float(sig["trigger_low"]) - distance if side > 0 else float(sig["trigger_high"]) + distance
+
+    def _stop_too_tight(self, sig: pd.Series) -> bool:
+        """진입 조건: 손절폭 > 진입가 × min_distance_pct. 주문 전에 판정하므로 신호 봉 종가를 진입가로 본다."""
+        ref = float(sig["trigger_close"])
+        distance = abs(ref - self._stop_price(sig, ref))
+        return not distance > self.s.strategy.exit.stop.min_distance_pct * ref
+
     def _enter(self, sid: int, sig: pd.Series, t: pd.Timestamp) -> str:
         cfg = self.s
         side = 1 if sig["side"] == "long" else -1
@@ -251,8 +272,7 @@ class BacktestEngine:
         price = self._fill(open_, side, taker=True)
         fee = self._fee(qty, price, taker=True)
         atr = float(sig["trigger_atr"])
-        mult = cfg.strategy.exit.stop.atr_mult
-        stop = float(sig["trigger_low"]) - mult * atr if side > 0 else float(sig["trigger_high"]) + mult * atr
+        stop = self._stop_price(sig, price)
         tp = cfg.strategy.exit.take_profit
         target: float | None
         trail: float | None = None
@@ -273,6 +293,7 @@ class BacktestEngine:
         self.pos = _Position(
             signal_id=sid, coin=sig["coin"], symbol=sig["symbol"], timeframe=sig["timeframe"], side=side,
             rank=float(sig["rank"]), signal_time=pd.Timestamp(sig["signal_time"]), entry_time=t, entry_price=price,
+            confluence_tfs=str(sig.get("confluence_tfs", sig["timeframe"])),
             qty=qty, stop=stop, initial_stop=stop, target=target, trail_distance=trail, extreme=open_,
             time_exit_at=t + hold, liq_price=liq, bars=bars, funding=funding, equity_before=equity, entry_fee=fee,
             slippage_cost=qty * abs(price - open_),
@@ -310,7 +331,8 @@ class BacktestEngine:
         net = gross - fee - p.entry_fee - p.funding_paid
         self.trades.append(Trade(
             trade_id=len(self.trades) + 1, signal_id=p.signal_id, coin=p.coin, symbol=p.symbol, timeframe=p.timeframe,
-            side="long" if p.side > 0 else "short", rank=p.rank, signal_time=p.signal_time, entry_time=p.entry_time,
+            side="long" if p.side > 0 else "short", rank=p.rank, confluence_tfs=p.confluence_tfs,
+            signal_time=p.signal_time, entry_time=p.entry_time,
             entry_price=p.entry_price, qty=p.qty, notional=p.qty * p.entry_price, stop=p.initial_stop,
             target=p.target if p.target is not None else float("nan"), exit_time=t, exit_price=fill,
             exit_reason=reason, gross_pnl=p.side * p.qty * (fill - p.entry_price), fees=p.entry_fee + fee,
@@ -445,6 +467,9 @@ class BacktestEngine:
         swing_price, rank (NaN = 순위 표 밖). 인덱스는 신호 ID 로 쓴다."""
         top_n = self.s.universe.top_n
         opposite = self.s.strategy.positioning.opposite_signal
+        confluence = self.s.strategy.confluence
+        if confluence.enabled and "confluence" not in signals.columns:
+            signals = annotate_confluence(signals, self.s.strategy)
         order = signals.assign(_rank=signals["rank"].fillna(np.inf)).sort_values(
             ["signal_time", "tf_minutes", "_rank"], ascending=[True, False, True], kind="stable")
         status: dict[int, str] = {}
@@ -471,6 +496,12 @@ class BacktestEngine:
                 rank = float(sig["rank"])
                 if not rank <= top_n:  # NaN 이거나 top_n 밖
                     status[sid] = "out_of_rank"
+                    continue
+                if confluence.enabled and int(sig["confluence"]) < confluence.min_timeframes:
+                    status[sid] = "no_confluence"
+                    continue
+                if self._stop_too_tight(pd.Series(sig)):
+                    status[sid] = "skipped_stop_too_tight"
                     continue
                 if entered:  # 같은 시각에 더 높은 우선순위 신호로 이미 진입
                     status[sid] = "skipped_simultaneous"

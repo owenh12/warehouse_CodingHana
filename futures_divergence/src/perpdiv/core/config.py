@@ -326,6 +326,8 @@ class StructureCfg(_Model):
 class StopCfg(_Model):
     atr_mult: PositiveFloat
     order_type: Literal["stop_market"]
+    basis: Literal["entry_price", "signal_bar"]  # 손절 기준점: 진입가 | 신호 봉 저가(숏 고가)
+    min_distance_pct: Annotated[float, Field(ge=0.0, lt=0.5)]  # 손절폭이 진입가의 이 비율보다 커야 진입
 
 
 class TakeProfitCfg(_Model):
@@ -357,6 +359,12 @@ class PositioningCfg(_Model):
         return self
 
 
+class ConfluenceCfg(_Model):
+    enabled: bool
+    min_timeframes: Annotated[int, Field(ge=1, le=4)]
+    validity_bars: PositiveInt  # 신호는 자기 TF 로 이 봉 수 동안 유효
+
+
 class StrategyCfg(_Model):
     rsi: RsiCfg
     atr: AtrCfg
@@ -364,6 +372,7 @@ class StrategyCfg(_Model):
     bullish: BullishCfg
     bearish: BearishCfg
     structure: StructureCfg
+    confluence: ConfluenceCfg
     exit: ExitCfg
     positioning: PositioningCfg
 

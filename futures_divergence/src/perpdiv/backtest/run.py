@@ -35,7 +35,7 @@ from perpdiv.reports.trade_charts import plot_equity, plot_trade
 
 PRIMARY = "net_x1_rules"
 STATUS_ORDER = ("entered", "skipped_holding", "skipped_simultaneous", "skipped_daily_loss", "skipped_kill_switch",
-                "skipped_min_notional", "skipped_no_data", "out_of_rank")
+                "skipped_min_notional", "skipped_no_data", "skipped_stop_too_tight", "no_confluence", "out_of_rank")
 
 
 class MemoMarket:
@@ -167,11 +167,12 @@ def write_report(settings: Settings, results: dict[str, BacktestResult], bench: 
     plot_equity(curves, tz=tz, path=out / "equity.png",
                 title=f"Equity (log) {start.tz_convert(tz):%Y-%m-%d} ~ {end.tz_convert(tz):%Y-%m-%d} {tz.key}")
     count = settings.backtest.outputs.signal_sample_count if sample_charts is None else sample_charts
-    if count and len(primary.trades):
+    sampled = results.get("net_x1_norules") or primary  # 규칙 적용 버전은 킬 스위치로 거래가 적어 미적용 버전에서 뽑는다
+    if count and len(sampled.trades):
         (out / "trades").mkdir(exist_ok=True)
-        picks = np.unique(np.linspace(0, len(primary.trades) - 1, min(count, len(primary.trades))).round().astype(int))
+        picks = np.unique(np.linspace(0, len(sampled.trades) - 1, min(count, len(sampled.trades))).round().astype(int))
         for n in picks:
-            trade = primary.trades.iloc[n]
+            trade = sampled.trades.iloc[n]
             sig: pd.Series = signals.iloc[int(trade["signal_id"])]
             tf_min = int(sig["tf_minutes"])
             a = pd.Timestamp(sig["anchor_time"]) - pd.Timedelta(minutes=tf_min * 15)
@@ -203,7 +204,8 @@ def _detail_sections(settings: Settings, result: BacktestResult, tz: ZoneInfo) -
     trades["year"] = pd.DatetimeIndex(trades["entry_time"]).tz_convert(tz).year
     trades["stop_pct"] = (trades["entry_price"] - trades["stop"]).abs() / trades["entry_price"]
     trades["equity_return"] = trades["net_pnl"] / trades["equity_before"]
-    for by, title in (("side", "방향"), ("timeframe", "타임프레임"), ("exit_reason", "청산 사유"), ("year", "진입 연도")):
+    for by, title in (("side", "방향"), ("timeframe", "타임프레임(확정 신호)"), ("confluence_tfs", "동시 성립 TF 조합"),
+                      ("exit_reason", "청산 사유"), ("year", "진입 연도")):
         lines += [f"### {title}별", "", *_split_table(split_stats(trades, by), title)]
     stops = trades.groupby("timeframe")["stop_pct"].describe(percentiles=[0.5, 0.9])
     lines += ["### 손절폭 (진입가 대비, 100% 진입이므로 = 손절 시 평가금액 손실률)", "",
@@ -257,7 +259,10 @@ def render_summary(settings: Settings, results: dict[str, BacktestResult], table
         f"- 신호: 피벗 L{st.pivot.left}/R{st.pivot.right} {st.pivot.tie_rule}, RSI {st.rsi.period} "
         f"{st.bullish.oversold:g}/{st.bearish.overbought:g}, 간격 ≤ {st.structure.gap_bars.max}, 구조 폐기 "
         f"{'on' if st.structure.discard_on_anchor_break else 'off'} · TF {', '.join(settings.data.timeframes.signal)}",
-        f"- 청산: 손절 ATR×{st.exit.stop.atr_mult:g}, 익절 {st.exit.take_profit.mode} "
+        f"- 진입: 동시 성립 {'서로 다른 TF ' + str(st.confluence.min_timeframes) + '개 이상 (신호 유효 ' + str(st.confluence.validity_bars) + '봉)' if st.confluence.enabled else '끔(TF 독립)'}"
+        f", 손절폭 > 진입가 × {st.exit.stop.min_distance_pct:.2%}",
+        f"- 청산: 손절 {'진입가' if st.exit.stop.basis == 'entry_price' else '신호 봉'} ∓ ATR×{st.exit.stop.atr_mult:g}, "
+        f"익절 {st.exit.take_profit.mode} "
         f"{st.exit.take_profit.r_multiple:g}R, 시간 {st.exit.time_exit.bars}봉, 판정 {st.exit.evaluation_timeframe}",
         f"- 비용: 테이커 {settings.costs.fees.taker:.3%}·메이커 {settings.costs.fees.maker:.3%}, 슬리피지 "
         f"{settings.costs.slippage.taker_pct:.3%} × 배수, 펀딩비 반영",

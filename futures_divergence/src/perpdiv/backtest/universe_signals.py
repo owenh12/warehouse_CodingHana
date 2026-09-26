@@ -26,8 +26,10 @@ from perpdiv.signals.divergence import run_detector, signals_frame
 
 
 def signal_cache_key(settings: Settings, candidates: CandidateSet) -> str:
-    payload = {"strategy": settings.strategy.model_dump(mode="json"), "data": settings.data.model_dump(mode="json"),
-               "candidates": candidates.created_at, "version": 1}
+    signal_part = settings.strategy.model_dump(mode="json", include={"rsi", "atr", "pivot", "bullish", "bearish",
+                                                                     "structure"})
+    payload = {"strategy": signal_part, "data": settings.data.model_dump(mode="json"),
+               "candidates": candidates.created_at, "version": 2}  # 신호 생성에 쓰는 설정만 (청산·진입 조건 제외)
     return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()[:16]
 
 
