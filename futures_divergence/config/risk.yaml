@@ -21,7 +21,7 @@ daily_loss:
   keep_protective_orders: true  # 발동 시 신규 진입만 중단, 기존 손절·익절 유지
 
 kill_switch:
-  enabled: true
+  enabled: false                # 사용자 결정(4단계 후): MDD 킬 스위치 제거. 비교용으로 코드·설정만 남김
   max_drawdown: 0.30            # 운용 시작 이후 평가금액 최고점 대비
   on_trip: keep_stops           # flatten_all: 즉시 전량 청산 | keep_stops: 기존 손절 주문만 유지
   auto_resume: false            # true 는 설정 검증에서 거부

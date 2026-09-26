@@ -218,7 +218,8 @@ def test_daily_loss_blocks_until_next_kst_day(tmp_path: Path) -> None:
 
 def test_kill_switch_blocks_and_flattens(tmp_path: Path) -> None:
     s = settings_with(tmp_path, {"strategy": {"exit": {"stop": {"atr_mult": 50.0}}},
-                                 "risk": {"daily_loss": {"enabled": False}, "kill_switch": {"on_trip": "flatten_all"}}})
+                                 "risk": {"daily_loss": {"enabled": False},
+                                          "kill_switch": {"enabled": True, "on_trip": "flatten_all"}}})
     market = FakeMarket()
     rows = [(100, 100.5, 99.5, 100), (90, 90, 60, 65), (66, 70, 64, 68), (68, 69, 67, 68)] + [(68, 69, 67, 68)] * 20
     market.frames["AAAUSDT"] = bars_from(rows)
@@ -347,8 +348,31 @@ def test_confluence_annotation() -> None:
     assert same_time["confluence"].tolist() == [2, 2]  # 같은 시각 확정도 서로 센다
 
 
+CONFLUENCE_ON: dict[str, Any] = {"strategy": {"confluence": {"enabled": True}}}
+
+
+def test_defaults_after_user_decisions() -> None:
+    s = load_settings()
+    assert not s.strategy.confluence.enabled  # 다중 TF 조건 원복 (TF 독립 진입)
+    assert s.strategy.exit.stop.basis == "entry_price" and s.strategy.exit.stop.min_distance_pct == 0.005
+    assert not s.risk.kill_switch.enabled and s.risk.daily_loss.enabled  # MDD 킬 스위치 제거, 일일 손실 유지
+
+
+def test_default_rules_single_tf_entry_stop_and_no_kill_switch(tmp_path: Path) -> None:
+    s = settings_with(tmp_path, {"strategy": {"exit": {"stop": {"atr_mult": 50.0}}}}, legacy=False)
+    market = FakeMarket()
+    rows = [(100, 100.5, 99.5, 100), (90, 90, 60, 65), (66, 70, 64, 68)] + [(68, 69, 67, 68)] * 60
+    market.frames["AAAUSDT"] = bars_from(rows)
+    market.frames["BBBUSDT"] = bars_from([(100, 100.5, 99.5, 100)] * 63)
+    # 단일 TF 신호로 바로 진입, 손절 = 진입가 − 50 × ATR(1.0), 30%+ 낙폭에도 킬 스위치 없음 → 다음 날(00:00 KST 이후) 신호는 진입
+    res = run(s, market, [signal(T0, tf="15m"), signal(T0 + pd.Timedelta(hours=15), symbol="BBBUSDT")])
+    tr = res.trades.iloc[0]
+    assert tr.stop == pytest.approx(100 * 1.0002 - 50.0)
+    assert res.signals["status"].tolist()[0] == "entered" and "kill_switch" not in [e.kind for e in res.risk_events]
+
+
 def test_confluence_gate_and_entry_stop(tmp_path: Path) -> None:
-    s = settings_with(tmp_path, legacy=False)
+    s = settings_with(tmp_path, CONFLUENCE_ON, legacy=False)
     assert s.strategy.confluence.enabled and s.strategy.exit.stop.basis == "entry_price"
     market = FakeMarket()
     market.frames["AAAUSDT"] = bars_from([(100, 100.5, 99.5, 100)] * 12 + [(100, 102, 90, 91)] * 4)
@@ -364,7 +388,7 @@ def test_confluence_gate_and_entry_stop(tmp_path: Path) -> None:
 
 
 def test_min_stop_distance_filter(tmp_path: Path) -> None:
-    s = settings_with(tmp_path, legacy=False)
+    s = settings_with(tmp_path, CONFLUENCE_ON, legacy=False)
     market = FakeMarket()
     market.frames["AAAUSDT"] = bars_from([(100, 100.5, 99.5, 100)] * 30)
     # 손절폭 2.5 × ATR: ATR 0.2 → 0.5 = 진입가(100)의 0.5% → "보다 커야" 하므로 불성립. ATR 0.21 → 0.525 → 진입
@@ -375,10 +399,20 @@ def test_min_stop_distance_filter(tmp_path: Path) -> None:
 
 
 def test_time_exit_uses_trigger_timeframe(tmp_path: Path) -> None:
-    s = settings_with(tmp_path, {"strategy": {"exit": {"time_exit": {"bars": 2}}}}, legacy=False)
+    s = settings_with(tmp_path, {"strategy": {"confluence": {"enabled": True}, "exit": {"time_exit": {"bars": 2}}}},
+                      legacy=False)
     market = FakeMarket()
     market.frames["AAAUSDT"] = bars_from([(100, 100.5, 99.5, 100)] * 40)
     # 15m 이 먼저, 1h 가 45분 안에 확정 → 확정 신호 = 1h → 시간 청산 2 × 1h
     res = run(s, market, [signal(T0, tf="15m", atr=1.0), signal(T0 + Q * 2, tf="1h", atr=1.0)])
     tr = res.trades.iloc[0]
     assert tr.timeframe == "1h" and tr.exit_reason == "time" and tr.exit_time == T0 + Q * 2 + pd.Timedelta(hours=2)
+
+
+
+def test_min_stop_distance_filter_single_tf(tmp_path: Path) -> None:
+    s = settings_with(tmp_path, legacy=False)  # 기본(TF 독립)에서도 0.5% 조건은 진입 조건
+    market = FakeMarket()
+    market.frames["AAAUSDT"] = bars_from([(100, 100.5, 99.5, 100)] * 30)
+    res = run(s, market, [signal(T0, atr=0.2), signal(T0 + Q * 20, atr=0.21)])
+    assert res.signals["status"].tolist() == ["skipped_stop_too_tight", "entered"]

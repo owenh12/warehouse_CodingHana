@@ -204,8 +204,10 @@ def _detail_sections(settings: Settings, result: BacktestResult, tz: ZoneInfo) -
     trades["year"] = pd.DatetimeIndex(trades["entry_time"]).tz_convert(tz).year
     trades["stop_pct"] = (trades["entry_price"] - trades["stop"]).abs() / trades["entry_price"]
     trades["equity_return"] = trades["net_pnl"] / trades["equity_before"]
-    for by, title in (("side", "방향"), ("timeframe", "타임프레임(확정 신호)"), ("confluence_tfs", "동시 성립 TF 조합"),
-                      ("exit_reason", "청산 사유"), ("year", "진입 연도")):
+    splits = [("side", "방향"), ("timeframe", "타임프레임")]
+    if settings.strategy.confluence.enabled:
+        splits += [("confluence_tfs", "동시 성립 TF 조합")]
+    for by, title in (*splits, ("exit_reason", "청산 사유"), ("year", "진입 연도")):
         lines += [f"### {title}별", "", *_split_table(split_stats(trades, by), title)]
     stops = trades.groupby("timeframe")["stop_pct"].describe(percentiles=[0.5, 0.9])
     lines += ["### 손절폭 (진입가 대비, 100% 진입이므로 = 손절 시 평가금액 손실률)", "",

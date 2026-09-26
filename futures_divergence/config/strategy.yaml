@@ -45,7 +45,7 @@ structure:
 exit:
   evaluation_timeframe: 15m     # 손절·익절·시간 청산 도달 판정 봉 (사용자 결정: 판정만 15분봉)
   stop:
-    atr_mult: 2.5               # Long: 진입가 − ATR×2.5, Short: 진입가 + ATR×2.5. ATR = 진입을 확정시킨 신호 TF 의 t3(p3) 값
+    atr_mult: 2.5               # Long: 진입가 − ATR×2.5, Short: 진입가 + ATR×2.5. ATR = 신호 TF 의 t3(p3) 값
     order_type: stop_market
     basis: entry_price          # entry_price: 진입가 기준 (전략 수정 후) | signal_bar: Low(t3)/High(p3) 기준 (이전 규칙)
     min_distance_pct: 0.005     # 진입 조건: 손절폭(ATR×2.5) > 진입가 × 0.5%. 판정 가격 = 신호 봉 종가 (주문 전에 알 수 있는 값)
@@ -55,10 +55,10 @@ exit:
     trailing_atr_mult: 2.5      # trailing: 진입 후 최고가(숏은 최저가) ∓ ATR(신호 TF, t3) × mult. 15분봉 마감마다 갱신
   time_exit:
     enabled: true
-    bars: 60                    # 진입을 확정시킨 신호의 TF 봉 60개 (1d = 60일, 15m = 15시간). 사용자 결정
+    bars: 60                    # 신호 TF 봉 60개 (1d = 60일, 15m = 15시간). 사용자 결정
 
-confluence:                     # 다중 TF 동시 성립 (전략 수정, 사용자 결정)
-  enabled: true
+confluence:                     # 다중 TF 동시 성립 — 사용자 결정으로 원복(끔): TF 마다 독립 진입. 비교용 선택 규칙으로 남김
+  enabled: false
   min_timeframes: 2             # 같은 코인·같은 방향으로 서로 다른 TF 신호가 2개 이상 유효할 때만 진입
   validity_bars: 3              # 신호는 자기 TF 3봉 동안 유효 (15m 45분, 1h 3시간, 4h 12시간, 1d 3일)
   # 진입 판정은 새 신호가 확정될 때만 한다(그 신호 = 확정 신호). 그때 유효한 다른 TF 신호는 이전 진입에 쓰였어도 다시 센다.
