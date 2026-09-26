@@ -1,0 +1,47 @@
+# 거래 대상: 거래대금 상위 N개 코인 (시점별 순위)
+top_n: 10
+
+ranking:
+  metric: quote_volume          # 거래대금 (quote asset 기준)
+  window_hours: 24              # 신호 확정 시점 직전 24시간, 마감된 봉만 합산
+  bar_timeframe: 5m             # 합산에 쓰는 봉 (수집 봉과 같아야 함)
+  aggregate_by: base_asset      # 같은 코인의 여러 스테이블 증거금 계약 거래대금을 합산해 코인 단위로 순위
+  rank_quote_assets: [USDT, USDC, USD1]   # 합산 대상 계약의 증거금 자산 (BUSD 계약은 2024년 이전 종료)
+  usd_per_quote: {USDT: 1.0, USDC: 1.0, USD1: 1.0}   # 가정: 스테이블코인 = 1 USD
+
+trading:
+  quote_asset: USDT             # 신호 판정·주문은 항상 USDT 무기한 계약으로 한다
+  contract_type: perpetual      # 분기물 제외
+
+exclude:
+  # 스테이블코인끼리의 페어 (기준 자산이 스테이블코인)
+  stablecoin_bases: [USDT, USDC, FDUSD, TUSD, BUSD, USDP, DAI, USDE, USD1, PYUSD, EUR, AEUR, EURI]
+  # 비암호화폐(TradFi) 무기한: 주식·ETF·레버리지 ETF·지수·금속·원자재·비상장 주식(pre-IPO), 금 연동 토큰(PAXG·XAUT).
+  # 2단계 점검(2026-09-26)의 판별식(주말/평일 변동 비율 < 0.45 또는 평일 변동의 미국장·아시아장 8시간 비중 ≥ 0.45)
+  # 결과 + 수동 추가(ANTHROPIC·EWZ·BNC: 판별식 미검출, 상장 묶음·종목명으로 확인). 모두 2025-12 이후 상장(PAXG 제외).
+  # 이 환경에서 exchangeInfo 를 받을 수 없어 판별식을 썼다 → 실거래 전 underlyingType/underlyingSubType 로 재확인.
+  tradfi_bases: [
+    AAOI, AAPL, ADBE, ALAB, AMAT, AMD, AMZN, ANTHROPIC, APP, ARM, ASML, ASTS, AVGO, AXTI, BABA, BBX, BE,
+    BITO, BMNR, BNC, BOT, BRKB, BSP, BX, BZ, CAT, CBRS, CIEN, CL, COHR, COIN, COPPER, COST, CRCL, CRDO,
+    CRM, CRWD, CRWV, CSCO, CSOPSAMSUNG2L, CSOPSKHYNIX2L, CXMT, DELL, DIS, DJT, DKNG, DRAM, EBAY, EWJ,
+    EWT, EWY, EWZ, FLEX, FLNC, FWDI, GDX, GEV, GIGADEV, GLW, GME, GOOGL, GS, HANMI, HD, HIMS, HK0700,
+    HK1810, HOOD, HPE, HYUNDAI, IBM, INTC, INTW, IONQ, IREN, IWM, JPM, KLAC, KO, KODEX200, KORU, KSTR,
+    KUAISHOU, LGELECTRONICS, LITE, LLY, LRCX, LYTE, MARA, MEITUAN, META, MINIMAX, MRK, MRNA, MRVL, MSFT,
+    MSTR, MU, MUU, MVLL, NATGAS, NAVER, NBIS, NET, NFLX, NOK, NOW, NVDA, NVO, ONDS, OPENAI, ORCL, PANW,
+    PAXG, PAYP, PDD, PENG, PLTR, POPMART, PYPL, QCOM, QNTX, QQQ, RAM, RDDT, RIVN, RKLB, SAMSUNG,
+    SAMSUNGEM, SHAZ, SHOP, SKDD, SKHY, SKHYNIX, SKUU, SMCI, SMH, SNDK, SNOW, SNXX, SOFI, SONY, SOXL,
+    SOXS, SPCX, SPY, SQQQ, STRC, STXX, TBT, TEM, TENCENT, TER, TMF, TQQQ, TSLA, TSM, TTWO, TXN, TZA,
+    UBER, UNITREE, URNM, USAR, UVXY, V, VRT, VST, WDC, WEN, WMT, XAG, XAU, XAUT, XBI, XLE, XPD, XPT,
+    ZHIPU, ZHONGJI, ZM
+  ]
+  # 판별식이 TradFi 로 잡았지만 암호화폐로 확인된 코인 (제외하지 않음)
+  #   ANT: Aragon (현물 상장, 2024 청산가 고정으로 주말 변동이 작았음) / IR: 시간대 비중 균등(미국 0.37·아시아 0.31)
+  reviewed_not_tradfi: [ANT, IR]
+  symbols: []                   # 개별 제외 (예: 특정 사고 코인)
+
+candidates:
+  # 2단계 순위: (1) 전 계약 1시간봉으로 매시 정각 롤링 24시간 순위 → (2) 기간 중 한 번이라도 1시간 순위가
+  # top_n + hourly_rank_margin 안에 든 코인만 5분봉을 받아 15분 경계마다 정확한 순위를 계산한다.
+  # 여유 폭은 data-check 의 표본 월 측정값(5분봉 상위 10 의 직전 정시 순위 최대 − top_n) 이상으로 둔다.
+  hourly_rank_margin: 6
+  include_delisted: true        # 상장폐지 코인도 거래 기간 동안 포함 (생존편향 방지)

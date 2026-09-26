@@ -1,0 +1,29 @@
+# 모의투자·실거래 운영
+mode: paper                     # paper | live
+live_confirm: false             # mode: live 로 바꿀 때 true 로 함께 바꿔야 실행 (실수 방지)
+
+scheduler:
+  bar_close_delay_sec: 5        # 봉 마감 후 거래소 데이터 반영을 기다리는 시간
+  max_bar_staleness_sec: 120    # 이 시간이 지나도 마감 봉이 안 오면 해당 주기 건너뛰고 경고
+
+orders:
+  entry_type: market            # market | limit
+  limit_timeout_sec: 30         # 지정가 미체결 타임아웃 → 취소 후 시장가 전환 여부는 아래
+  limit_fallback_to_market: true
+  max_retries: 3
+  retry_backoff_sec: 1.0
+  protective_stop: reduce_only_stop_market   # 진입 체결 직후 거래소에 손절 주문 등록
+
+state:
+  sqlite_file: live_state.sqlite
+  reconcile_on_start: true      # 재시작 시 거래소 포지션·주문과 로컬 상태 대조, 불일치 시 알림
+
+notifications:
+  telegram:
+    enabled: false              # 봇 토큰·채팅 ID 는 .env
+    events: [signal, fill, error, risk, daily_report]
+    daily_report_time: "09:05"  # KST
+
+logging:
+  format: json
+  level: INFO

@@ -1,0 +1,40 @@
+# 파라미터 검증 (과최적화 방지)
+method: optuna                  # optuna | grid
+n_trials: 200
+seed: 42
+
+objective:
+  metric: expectancy_r
+  min_trades: 30
+  report_also: [calmar, sharpe, profit_factor]
+
+search_space:                   # 키는 strategy.yaml 기준 경로
+  pivot.left: {type: int, low: 1, high: 4}
+  pivot.right: {type: int, low: 1, high: 4}
+  bullish.oversold: {type: float, low: 20.0, high: 35.0, step: 5.0}
+  bearish.overbought: {type: float, low: 65.0, high: 80.0, step: 5.0}
+  exit.stop.atr_mult: {type: float, low: 1.0, high: 3.5, step: 0.5}
+  structure.gap_bars.max: {type: int, low: 20, high: 100, step: 20}
+  exit.take_profit.mode: {type: categorical, choices: [structure, r_multiple, trailing]}
+
+walk_forward:
+  train: 12M
+  test: 6M
+  step: 6M
+  anchored: false
+
+stability:
+  heatmap_pairs:
+    - [pivot.left, pivot.right]
+    - [exit.stop.atr_mult, structure.gap_bars.max]
+  neighborhood_tolerance: 0.2
+
+monte_carlo:
+  n_sims: 1000
+  method: shuffle
+  kill_switch_drawdown: 0.30
+  seed: 42
+
+cross_section:                  # 동일 파라미터의 심볼별·타임프레임별 성과 분포
+  per_symbol: true
+  per_timeframe: true

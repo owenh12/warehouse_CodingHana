@@ -1,0 +1,21 @@
+# 계좌·거래소·저장 경로 공통 설정
+project:
+  name: perp-rsi-divergence
+  storage_timezone: UTC         # 저장·계산은 모두 UTC
+  display_timezone: Asia/Seoul  # 로그·리포트·알림 표시만 KST
+
+account:
+  initial_capital: 1000.0       # USDT
+  quote_asset: USDT             # 계좌 통화 = 주문하는 계약의 증거금 자산
+
+exchange:
+  venue: binance_usdm           # 바이낸스 USDⓈ-M 무기한 선물
+  position_mode: one_way        # 단방향 모드 (롱·숏 동시 보유 없음)
+  margin_mode: isolated         # 격리 마진
+  leverage: 1                   # 1배. 1 초과 시 청산가 도달 여부를 백테스트에 반영
+
+paths:                          # 모두 .gitignore 대상 (프로젝트 폴더 기준 상대 경로)
+  cache_dir: storage/cache      # Parquet 캐시
+  state_dir: storage/state      # SQLite 상태 DB (모의·실거래)
+  log_dir: storage/logs         # JSON 구조화 로그
+  report_dir: storage/reports   # 점검·백테스트·최적화 리포트

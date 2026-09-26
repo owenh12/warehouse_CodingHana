@@ -1,0 +1,39 @@
+# 데이터 계층
+timeframes:
+  collect: 5m                   # 수집 봉 (거래소 원본). 신호용 봉은 이것을 리샘플링
+  signal: [15m, 1h, 4h, 1d]     # 각 타임프레임을 독립적으로 신호 판정
+  execution: 15m                # 손절·익절·시간 청산 도달 판정 봉
+  precise: 1m                   # 정밀 모드(봉 내부 순서 판정)에서만 사용
+
+backtest_period:
+  start: 2024-01-01
+  end: null                     # null = 실행 시점의 마지막 마감 봉
+warmup_days: 200                # 지표 안정화용 선행 구간 (1d RSI·ATR 워밍업 포함). 이 구간의 신호는 집계하지 않음
+
+providers:
+  binance:
+    history_source: vision      # vision: data.binance.vision 아카이브 (SHA-256 검증) | rest: ccxt
+    vision_base_url: https://data.binance.vision
+    vision_listing_url: https://s3-ap-northeast-1.amazonaws.com/data.binance.vision
+    verify_checksum: true
+    enable_rate_limit: true     # ccxt 요청 간격 제어
+    page_limit: 1500            # USDⓈ-M klines 요청당 최대 행 수
+    timeout_sec: 30
+    max_retries: 3
+    retry_backoff_sec: 2.0      # 2, 4, 8초 …
+    download_workers: 16        # 아카이브 병렬 다운로드 수
+
+quality:
+  duplicate_bar: keep_last_if_identical   # 같은 시각 봉이 여러 개: 값이 같으면 하나만, 다르면 오류
+  missing_bar: keep_gap         # 결측 봉은 만들지 않음 (리샘플 버킷은 있는 봉으로 계산하고 결측 수를 기록)
+  inactive_bar:                 # 거래 없음 판정 (상장폐지 후 아카이브의 고정가 봉 등)
+    rule: zero_trades           # 체결 수 0 이고 OHLC 가 모두 같은 봉
+    halt_min_bars: 12           # 5분봉 12개(1시간) 이상 연속이면 거래 중단 구간 → 신호·순위·신규 진입 제외
+  max_gap_warn_bars: 3          # 이보다 긴 결측은 경고
+
+cache:
+  compression: zstd
+  refresh_recent_days: 3        # 월말 + N일이 지난 월 파티션은 확정, 이후 재다운로드 안 함
+
+funding:
+  source: vision                # 월별 아카이브 + 이번 달은 REST (가능할 때)

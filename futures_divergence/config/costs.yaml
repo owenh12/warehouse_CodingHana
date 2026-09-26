@@ -1,0 +1,29 @@
+# 거래비용 — 백테스트·모의투자·실거래가 모두 이 파일을 사용
+fees:
+  vip_level: 0
+  maker: 0.0002                 # 0.02%
+  taker: 0.0005                 # 0.05%
+  basis: notional               # 증거금이 아닌 포지션 명목가치 기준
+  bnb_discount:
+    enabled: false
+    rate: 0.10                  # BNB 결제 시 10% 할인
+
+order_liquidity:                # 주문 유형 → 메이커/테이커
+  market: taker
+  stop_market: taker
+  limit_resting: maker          # 호가창에 대기했다가 체결된 지정가
+  limit_marketable: taker       # 즉시 체결되는 지정가
+
+funding:
+  enabled: true
+  # 정산 시각 T 에 보유 중이면 반영: entry_time < T <= exit_time
+  # Long: 양(+) 펀딩비 = 비용, 음(−) = 수익. Short: 반대.
+  # 금액 = 수량 × 정산 시점 표시가격(mark price) × 펀딩비율. 과거 mark price 가 없으면 해당 시각 5분봉 시가로 근사
+
+slippage:
+  taker_pct: 0.0002             # 테이커 체결 시 0.02% 불리하게
+  maker_pct: 0.0
+
+scenarios:
+  slippage_multipliers: [0, 1, 2]
+  include_gross: true           # 비용 반영 전 성과를 나란히 보고

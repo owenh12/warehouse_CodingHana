@@ -1,0 +1,35 @@
+# 사이징과 리스크 관리 — 실거래 규칙. 백테스트에서는 적용/미적용 두 버전을 비교
+sizing:
+  equity_fraction: 1.0          # 계좌 평가금액의 100%
+  # 명목가치 = 평가금액 × equity_fraction × 레버리지 × (1 − fee_buffer)
+  # fee_buffer: 진입·청산 수수료와 슬리피지만큼 명목가를 줄여 증거금 부족으로 주문이 거부되지 않게 한다
+  fee_buffer: 0.002
+  reference_price: signal_close # 수량 계산 기준가 = 신호 봉 종가 (다음 봉 시가는 주문 시점에 모름)
+
+positions:
+  max_concurrent: 1             # 동시 보유 1개. 보유 중 발생 신호는 '보유 중 스킵'으로 집계
+
+liquidation:
+  enabled: true                 # 레버리지 > 1 일 때 청산가 도달 여부 반영 (격리 마진)
+  maintenance_margin_rate: 0.004  # 거래소 레버리지 구간표를 못 받을 때 쓰는 대체값
+
+daily_loss:
+  enabled: true
+  threshold: 0.03               # 당일 시작 평가금액 대비 (실현 + 미실현) 3% 손실
+  reset_time: "00:00"           # 매일 00:00 KST 리셋
+  reset_timezone: Asia/Seoul
+  keep_protective_orders: true  # 발동 시 신규 진입만 중단, 기존 손절·익절 유지
+
+kill_switch:
+  enabled: true
+  max_drawdown: 0.30            # 운용 시작 이후 평가금액 최고점 대비
+  on_trip: keep_stops           # flatten_all: 즉시 전량 청산 | keep_stops: 기존 손절 주문만 유지
+  auto_resume: false            # true 는 설정 검증에서 거부
+  release_ack: null             # 발동 시 기록된 trip_id 를 입력해야 해제
+
+api_errors:
+  enabled: true
+  max_consecutive: 5            # 연속 실패 5회 → 거래 중단 + 알림
+  reset_on_success: true
+  record_open_orders: true      # 중단 시 미체결 주문 조회·기록 후 알림
+  release_ack: null
