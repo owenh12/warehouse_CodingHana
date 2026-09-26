@@ -2,6 +2,7 @@
 
 > 작성 2026-09-26. 구간 2024-01-01 ~ 2026-08-31 (UTC, `last_month_end`), 초기 자본 1,000 USDT, 1배, 진입 100%, 동시 1개.
 > 원본 결과: `storage/reports/backtest/20260926T145847Z/` (git 제외). 5단계(검증·최적화)는 승인 후 진행.
+> 대시보드(비공개 아티팩트): https://claude.ai/artifact/XjvGKzWFZQLWDiG9BZJ7EU — 성과표, 평가금액 차트, 신호 처리, 거래 통계, 거래 표본 30장.
 
 ## 1. 구현 내용
 
