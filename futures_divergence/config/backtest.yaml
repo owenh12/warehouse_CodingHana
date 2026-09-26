@@ -7,6 +7,11 @@ fill:
   limit_fill_rule: touch        # touch | through (1틱 이상 넘어서야 체결)
   delisting: close_at_last_trade  # 거래 중단·상장폐지 시 마지막 체결가로 청산 기록
 
+instruments:                    # 과거 거래 규칙 (이 환경에서 exchangeInfo 를 받을 수 없어 대체)
+  qty_step: kline_volume_decimals  # 아카이브 kline 거래량 문자열의 소수 자릿수 = 수량 단위 (BTC 0.001, DOGE 1 …)
+  min_notional: 5.0             # USDT, 거래소 기본 최소 주문 명목가
+  min_notional_overrides: {BTCUSDT: 100.0, ETHUSDT: 20.0}   # 가정: 대형 코인 예외값
+
 risk_rules_variants: [with_live_rules, without_live_rules]
 
 benchmark:

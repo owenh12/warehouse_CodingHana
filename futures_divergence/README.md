@@ -8,8 +8,9 @@
 | 1 | 구조·설정 설계 (config/*.yaml 9개, 스키마 검증) | 완료 |
 | 2 | 데이터 확보 점검, 데이터 계층, RSI·ATR·피벗, 단위 테스트 | 완료 ([보고서](docs/STAGE2_DATA_REPORT.md)) |
 | 3 | 신호 생성 + 시각 검증 (BTCUSDT, 최근 12개월, 4개 TF) | 완료 ([보고서](docs/STAGE3_SIGNALS_REPORT.md)) |
-| 4 | 백테스트 | 승인 대기 |
-| 5~7 | 검증 · 페이퍼 · 실거래 | — |
+| 4 | 백테스트 (유니버스 560개 코인, 시나리오 10개, BTC 보유 비교) | 완료 ([보고서](docs/STAGE4_BACKTEST_REPORT.md)) |
+| 5 | 검증 (그리드/Optuna, walk-forward, 안정성, 몬테카를로) | 승인 대기 |
+| 6~7 | 페이퍼 · 실거래 | — |
 
 ## 설치
 
@@ -30,6 +31,8 @@ python -m perpdiv data-check --sample-month 2024-03,2026-08   # 데이터 확보
 python -m perpdiv resample-check --months 2024-03,2025-06   # 5분봉 리샘플 vs 원본 15m/1h/4h/1d 대조
 python -m perpdiv source-check --days 3                 # 아카이브 vs 거래소 REST 5분봉 대조 (국내 PC 에서)
 python -m perpdiv signals --symbol BTCUSDT --months 12  # 신호 CSV·개요/개별 차트·요약 → storage/reports/signals/
+python -m perpdiv universe                              # 백테스트 유니버스: 후보군 → 5분봉 수집 → 15분 정밀 순위
+python -m perpdiv backtest --precise                    # 백테스트 → storage/reports/backtest/<시각>/
 ```
 
 ## 테스트·정적 검사
@@ -51,8 +54,9 @@ src/perpdiv/
                품질 규칙(결측·중복·거래 중단·상장폐지), 심볼 해석, 거래대금 순위, 확보 점검
   indicators/  Wilder RSI·ATR (일괄·증분 비트 단위 동일), 피벗(동률 규칙·확정 시점)
   signals/     다이버전스 구조 추적기 (강세 t1→p2→t3, 약세 p1→t2→p3), 신호 레코드, 판정 집계
-  reports/     신호 시각 검증 차트·요약
-  backtest/ optimize/ risk/ broker/ live/   (4단계 이후)
+  reports/     신호·거래 차트, 평가금액 차트
+  backtest/    유니버스 신호, 이벤트 엔진, 시장 데이터(실행 봉·펀딩·1분봉), 수량 단위, 지표, 실행·보고서
+  optimize/ risk/ broker/ live/   (5단계 이후)
 tests/       단위 테스트
 storage/     캐시·보고서·상태 DB (git 제외)
 ```

@@ -6,6 +6,8 @@
 - ``resample-check``: 5분봉 리샘플 결과를 아카이브 원본 15m/1h/4h/1d 와 비교 → CSV
 - ``source-check``: 아카이브 봉 vs 거래소 REST 봉 (국내 PC 에서 실행; 이 원격 환경은 fapi 지역 차단)
 - ``signals``: 한 심볼의 최근 N개월 다이버전스 신호 → CSV·개요/개별 차트·요약 (3단계 시각 검증)
+- ``universe``: 백테스트 유니버스 준비 (후보군 → 5분봉 수집 → 15분 경계 정밀 순위)
+- ``backtest``: 4단계 백테스트 (시나리오 × 리스크 규칙, BTC 보유 비교, 보고서)
 """
 
 from __future__ import annotations
@@ -145,6 +147,53 @@ def _signals(args: argparse.Namespace) -> int:
     return 0
 
 
+def _universe(args: argparse.Namespace) -> int:
+    from perpdiv.core.timeutil import utc_now
+    from perpdiv.data.candidates import CandidateSet, build_candidates, fetch_candidate_klines, universe_dir
+    from perpdiv.data.check import build_archive, build_cache
+
+    settings = load_settings(args.config_dir)
+    archive = build_archive(settings)
+    cache = build_cache(settings, archive, args.workers)
+    path = universe_dir(settings) / "candidates.json"
+
+    def log(message: str) -> None:
+        print(message, flush=True)
+
+    if "candidates" in args.steps or not path.is_file():
+        candidates = build_candidates(settings, archive, cache, now=utc_now(), workers=args.workers, log=log)
+        candidates.save(path)
+        log(f"저장: {path}")
+    candidates = CandidateSet.load(path)
+    if "fetch" in args.steps:
+        stats = fetch_candidate_klines(settings, archive, cache, candidates, interval=settings.data.timeframes.collect,
+                                       workers=args.workers, log=log)
+        log(f"5분봉 수집 완료: {stats['mb']:,.0f} MB, {stats['seconds']:,.0f}초")
+    if "ranks" in args.steps:
+        from perpdiv.backtest.market import Listing
+        from perpdiv.data.ranks import build_rank_table
+        from perpdiv.data.vision import Dataset
+
+        listing = Listing(archive, universe_dir(settings) / "listing.json")
+        listing.prime([Dataset("klines", sym, settings.data.timeframes.collect)
+                       for w in candidates.windows.values() for sym in w.rank_symbols])
+        out = build_rank_table(settings, cache, candidates, log=log, months_available=listing.months)
+        log(f"정밀 순위 저장: {out}")
+    return 0
+
+
+def _backtest(args: argparse.Namespace) -> int:
+    from pathlib import Path
+
+    from perpdiv.backtest.run import run_backtest
+
+    settings = load_settings(args.config_dir, args.override)
+    out = run_backtest(settings, precise=args.precise, sample_charts=args.samples,
+                       log=lambda m: print(m, flush=True), out_dir=Path(args.out) if args.out else None)
+    print(f"결과: {out}")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="perpdiv")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -174,8 +223,22 @@ def main(argv: Sequence[str] | None = None) -> int:
     sg.add_argument("--out", default=None, help="기본: storage/reports/signals/<symbol>")
     sg.add_argument("--no-charts", action="store_true")
     sg.add_argument("--override", action="append", default=[], help="실험용 덮어쓰기 YAML (config 명령과 같음)")
+    un = sub.add_parser("universe", help="백테스트 유니버스 준비")
+    un.add_argument("--config-dir", default=None)
+    un.add_argument("--steps", default="candidates,fetch,ranks", help="candidates,fetch,ranks 중 선택")
+    un.add_argument("--workers", type=int, default=32)
+    bt = sub.add_parser("backtest", help="4단계 백테스트")
+    bt.add_argument("--config-dir", default=None)
+    bt.add_argument("--override", action="append", default=[])
+    bt.add_argument("--precise", action="store_true", help="기본 시나리오를 1분봉 정밀 모드로 한 번 더")
+    bt.add_argument("--samples", type=int, default=None, help="거래 표본 차트 수 (기본: backtest.yaml)")
+    bt.add_argument("--out", default=None)
     args = parser.parse_args(argv)
 
+    if args.command == "backtest":
+        return _backtest(args)
+    if args.command == "universe":
+        return _universe(args)
     if args.command == "signals":
         return _signals(args)
     if args.command == "source-check":

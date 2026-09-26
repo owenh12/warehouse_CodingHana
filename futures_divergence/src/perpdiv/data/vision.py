@@ -238,6 +238,16 @@ class VisionArchive:
     def _parse(self, dataset: Dataset, content: bytes) -> pd.DataFrame:
         return parse_funding_csv(content) if dataset.kind == "fundingRate" else parse_kline_csv(content)
 
+    def raw_csv(self, dataset: Dataset, period: str) -> bytes | None:
+        """원본 CSV 바이트 (월 'YYYY-MM' 또는 일 'YYYY-MM-DD'). 숫자 문자열 형식(소수 자릿수)이 필요할 때 쓴다."""
+        freq = "daily" if len(period) == 10 else "monthly"
+        return self._download_csv(self._path(freq, dataset, period))
+
+    def day_frame(self, dataset: Dataset, day: dt.datetime) -> pd.DataFrame:
+        """하루치 일 파일 (1분봉 정밀 모드처럼 특정 날만 필요할 때)."""
+        content = self.raw_csv(dataset, f"{ensure_utc(day):%Y-%m-%d}")
+        return self.empty_frame(dataset) if content is None else self._parse(dataset, content)
+
     def empty_frame(self, dataset: Dataset) -> pd.DataFrame:
         return empty_funding() if dataset.kind == "fundingRate" else empty_ohlcv()
 

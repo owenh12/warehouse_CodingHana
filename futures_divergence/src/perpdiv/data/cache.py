@@ -99,6 +99,26 @@ class ArchiveCache:
         self._write(dataset, month, frame, fetched_at)
         return frame
 
+    def prefetch(self, jobs: Sequence[tuple[Dataset, dt.datetime, dt.datetime]],
+                 months_available: dict[Dataset, set[str]] | None = None,
+                 progress: Callable[[int, int], None] | None = None) -> int:
+        """데이터셋마다 구간이 다른 대량 수집. 캐시만 채우고 프레임은 버린다 (메모리 절약). 처리한 파티션 수를 돌려준다."""
+        now = self._clock()
+        work: list[tuple[Dataset, dt.datetime]] = []
+        for ds, start, end in jobs:
+            for month in month_starts(ensure_utc(start), ensure_utc(end)):
+                complete = next_month(month) <= now
+                if complete and months_available is not None and f"{month:%Y-%m}" not in months_available.get(ds, set()):
+                    continue
+                work.append((ds, month))
+        with cf.ThreadPoolExecutor(self._workers) as pool:
+            futures = [pool.submit(self._month, ds, m) for ds, m in work]
+            for done, future in enumerate(cf.as_completed(futures), 1):
+                future.result()
+                if progress is not None:
+                    progress(done, len(work))
+        return len(work)
+
     def get(self, dataset: Dataset, start: dt.datetime, end: dt.datetime) -> pd.DataFrame:
         return self.get_many([dataset], start, end)[dataset]
 

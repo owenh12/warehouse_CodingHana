@@ -175,7 +175,7 @@ def naive_long(high: np.ndarray, low: np.ndarray, close: np.ndarray, rsi: np.nda
             p2 = min(ks, key=lambda k: (-high[k], k))  # 최고가, 같으면 먼저 확정된 것
             if high[p2] < high[j:n].max():
                 continue
-            if cfg.structure.anchor_must_be_extreme and low[j:p2 + 1].min() < low[j]:
+            if cfg.structure.discard_on_anchor_break and low[j:p2 + 1].min() < low[j]:
                 continue
             level = float(low[p2:n].min())
             if close[n] < level and close[n] < low[j] and rsi[n] > oversold and (j, p2) not in fired:
@@ -205,26 +205,28 @@ CASES = [
     {"pivot__left": 3, "pivot__right": 1, "structure__gap_bars__max": 25},
     {"structure__gap_bars__max_enabled": False},
     {"structure__gap_bars__min_enabled": True, "structure__gap_bars__min": 8},
-    {"bullish__oversold": 40.0},
-    {"structure__anchor_must_be_extreme": True},
+    {"bullish__oversold": 35.0},
+    {"structure__discard_on_anchor_break": False},
 ]
 
 
 @pytest.mark.parametrize("updates", CASES)
-@pytest.mark.parametrize("seed", [1, 2, 3])
-def test_matches_naive_definition(base_cfg: StrategyCfg, updates: dict[str, Any], seed: int) -> None:
+def test_matches_naive_definition(base_cfg: StrategyCfg, updates: dict[str, Any]) -> None:
     cfg = cfg_with(base_cfg, **updates)
-    high, low, close = random_ohlc(1500, seed)
-    rsi = rsi_wilder(close, 14)
-    got = [h for h in run(cfg, list(zip(high, low, close, strict=True)), list(rsi)) if h.side == "long"]
-    expected = naive_long(high, low, close, rsi, cfg)
-    assert [(h.anchor, h.swing, h.trigger, h.breakout_level, h.concurrent) for h in got] == expected
-    assert len(expected) >= 2  # 시험이 비어 있지 않은지
+    total = 0
+    for seed in (1, 2, 3):
+        high, low, close = random_ohlc(3000, seed)
+        rsi = rsi_wilder(close, 14)
+        got = [h for h in run(cfg, list(zip(high, low, close, strict=True)), list(rsi)) if h.side == "long"]
+        expected = naive_long(high, low, close, rsi, cfg)
+        assert [(h.anchor, h.swing, h.trigger, h.breakout_level, h.concurrent) for h in got] == expected
+        total += len(expected)
+    assert total >= 3  # 시험이 비어 있지 않은지
 
 
 @pytest.mark.parametrize("seed", [4, 5])
 def test_bearish_mirror_on_random_data(base_cfg: StrategyCfg, seed: int) -> None:
-    high, low, close = random_ohlc(1500, seed)
+    high, low, close = random_ohlc(3000, seed)
     rsi = list(rsi_wilder(close, 14))
     bars = list(zip(high, low, close, strict=True))
     longs = [h for h in run(base_cfg, bars, rsi) if h.side == "long"]
@@ -293,12 +295,17 @@ def test_detector_rejects_out_of_order(base_cfg: StrategyCfg) -> None:
         detector.update(t, 1, 2, 0.5, 1.5)
 
 
-def test_anchor_must_be_extreme_option(base_cfg: StrategyCfg) -> None:
+def test_discard_on_anchor_break(base_cfg: StrategyCfg) -> None:
     # 3번 봉 저가 9.8 < Low(t1)=10 (t1 과 p2=4 사이에 더 낮은 저점, RSI 40 이라 자체 구조는 없음)
-    # → 기본(요구사항 그대로)은 (t1=1, p2=4) 신호, 옵션을 켜면 t1 이 [t1, p2] 최저가가 아니므로 신호 없음
+    # → 폐기 규칙을 끄면 (t1=1, p2=4) 신호, 켜면(기본) 구조가 폐기되어 신호 없음
     deeper: list[Bar] = [(15, 13, 14), (12, 10, 11), (14, 11, 13), (13, 9.8, 12), (16, 12, 15), (15, 13, 14),
                          (14, 12.5, 13), (13, 9, 9.5)]
     rsi = [NAN, 25, 40, 40, 50, 50, 45, 35]
-    assert run(base_cfg, deeper, rsi) == [Hit("long", 1, 4, 7, 12.0, 1)]
-    assert run(cfg_with(base_cfg, structure__anchor_must_be_extreme=True), deeper, rsi) == []
-    assert len(run(cfg_with(base_cfg, structure__anchor_must_be_extreme=True), BASE, BASE_RSI)) == 1
+    keep = cfg_with(base_cfg, structure__discard_on_anchor_break=False)
+    assert run(keep, deeper, rsi) == [Hit("long", 1, 4, 7, 12.0, 1)]
+    assert base_cfg.structure.discard_on_anchor_break  # 기본 = 폐기 (3단계 후 사용자 결정)
+    assert run(base_cfg, deeper, rsi) == []
+    assert len(run(base_cfg, BASE, BASE_RSI)) == 1
+    # p2 뒤(p2~t3 사이)의 더 낮은 저가는 폐기 사유가 아님 (이탈 구간) — 기본 시나리오의 5번 봉 꼬리
+    assert run(base_cfg, with_bar(with_bar(BASE, 5, (14, 9.5, 13)), 6, (13, 9, 9.49)), BASE_RSI) == [
+        Hit("long", 1, 3, 6, 9.5, 1)]

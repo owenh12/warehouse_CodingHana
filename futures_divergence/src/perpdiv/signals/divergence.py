@@ -10,7 +10,7 @@
 4. 판정 (p2 가 있는 구조):
    이탈 Close(n) < min(Low[p2..n−1]) · p2 유효 High(p2) ≥ max(High[t1..n−1]) · 가격 Close(n) < Low(t1) ·
    RSI(n) > oversold · 간격 하한(켜진 경우) · (t1, p2) 조합 미발신
-   · (선택 ``anchor_must_be_extreme``) t1 = min Low[t1..p2]
+   (``discard_on_anchor_break``: p2 지정·교체 때 t1~p2 사이에 Low(t1) 보다 낮은 저가가 있으면 구조 폐기 — 2단계 처리)
 5. 성립한 구조가 여럿이면 신호 1건(가장 최근 t1), 성립한 조합은 모두 발신 완료로 표시
 6. 다음 봉을 위해 구조별 누적값 갱신: max(High[t1..n]), min(Low[p2..n])
 
@@ -51,7 +51,6 @@ class Hit:
 class _Structure:
     anchor: int
     swing: int | None = None
-    anchor_is_extreme: bool = True  # long: Low(anchor) = min Low[anchor..swing] (현재 swing 기준)
     extreme: float = math.nan  # long: max(High[anchor..n−1]) / short: min(Low[anchor..n−1])
     level: float = math.nan  # long: min(Low[swing..n−1]) / short: max(High[swing..n−1])
     fired: set[int] = field(default_factory=set)  # 이미 신호를 낸 swing 인덱스
@@ -61,9 +60,9 @@ class _SideTracker:
     """한 방향의 구조 목록. 약세는 가격을 부호 반전해 같은 코드로 처리한다 (high ↔ −low)."""
 
     def __init__(self, side: Side, threshold: float, gap_max: int | None, gap_min: int | None,
-                 anchor_extreme: bool = False) -> None:
+                 discard_on_anchor_break: bool = False) -> None:
         self.side = side
-        self.anchor_extreme = anchor_extreme
+        self.discard_on_anchor_break = discard_on_anchor_break
         self.threshold = threshold  # long: oversold / short: −overbought (부호 반전 공간)
         self.gap_max, self.gap_min = gap_max, gap_min
         self.structures: list[_Structure] = []
@@ -79,12 +78,19 @@ class _SideTracker:
             self.structures.append(_Structure(anchor=index, extreme=max(highs[index:-1])))
 
     def on_swing(self, index: int, highs: list[float], lows: list[float]) -> None:
+        kept: list[_Structure] = []
         for s in self.structures:
             if s.anchor < index and (s.swing is None or highs[index] > highs[s.swing]):
+                # 선택 규칙: t1~p2 사이에 Low(t1) 보다 낮은 저가가 있으면 구조 폐기. p2 는 뒤로만 바뀌므로
+                # 한 번 깨진 구조는 이후 어떤 p2 로도 조건을 되찾지 못한다 → 여기서 지운다.
+                if self.discard_on_anchor_break and min(lows[s.anchor:index + 1]) < lows[s.anchor]:
+                    self.stats["discarded_anchor_broken"] += 1
+                    continue
                 self.stats["swing_set" if s.swing is None else "swing_replaced"] += 1
                 s.swing = index
                 s.level = min(lows[index:-1])
-                s.anchor_is_extreme = min(lows[s.anchor:index + 1]) >= lows[s.anchor]
+            kept.append(s)
+        self.structures = kept
 
     def evaluate(self, n: int, highs: list[float], lows: list[float], close: float, rsi: float) -> Hit | None:
         if self.gap_max is not None:
@@ -99,8 +105,6 @@ class _SideTracker:
             self.stats["breakouts"] += 1
             if highs[s.swing] < s.extreme:
                 self.stats["fail_swing_not_highest"] += 1
-            elif self.anchor_extreme and not s.anchor_is_extreme:
-                self.stats["fail_anchor_not_extreme"] += 1
             elif not close < lows[s.anchor]:
                 self.stats["fail_price"] += 1
             elif math.isnan(rsi) or not rsi > self.threshold:
@@ -137,7 +141,7 @@ class StructureTracker:
         gap_max = gap.max if gap.max_enabled else None
         gap_min = gap.min if gap.min_enabled else None
         self._pivots = PivotTracker(cfg.pivot.left, cfg.pivot.right, cfg.pivot.tie_rule)
-        extreme = cfg.structure.anchor_must_be_extreme
+        extreme = cfg.structure.discard_on_anchor_break
         self._long = (_SideTracker("long", cfg.bullish.oversold, gap_max, gap_min, extreme)
                       if cfg.bullish.enabled else None)
         self._short = (_SideTracker("short", -cfg.bearish.overbought, gap_max, gap_min, extreme)

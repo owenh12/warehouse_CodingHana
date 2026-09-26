@@ -34,7 +34,8 @@ bearish:
 structure:
   anchor_candidates: all        # t1(p1) 후보를 모두 독립 추적 (사용자 결정)
   same_bar_signals: one_latest_anchor   # 한 봉에서 여러 구조가 동시에 성립하면 신호 1건, 가장 최근 t1(p1)을 기록
-  anchor_must_be_extreme: false # true: t1 이 [t1, p2] 구간 최저가여야 함 (약세: p1 이 [p1, t2] 최고가). 요구사항에 없는 조건 → 3단계 확인 대기
+  discard_on_anchor_break: true # t1~p2 사이에 Low(t1) 보다 낮은 저가가 나오면 구조 폐기 (약세: p1~t2 사이 High(p1) 보다 높은 고가)
+                                # 3단계 후 사용자 결정. p2 봉 자신의 저가도 포함
   gap_bars:                     # t1~t3 (p1~p3) 간격, 신호 타임프레임 봉 수
     max_enabled: true
     max: 60

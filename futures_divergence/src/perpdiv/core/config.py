@@ -319,7 +319,7 @@ class GapBarsCfg(_Model):
 class StructureCfg(_Model):
     anchor_candidates: Literal["all"]
     same_bar_signals: Literal["one_latest_anchor"]
-    anchor_must_be_extreme: bool  # true: t1 = min Low[t1..p2] (약세 p1 = max High[p1..t2]) 이어야 신호
+    discard_on_anchor_break: bool  # true: t1~p2 사이에 Low(t1) 보다 낮은 저가(약세: p1~t2 사이 더 높은 고가) → 구조 폐기
     gap_bars: GapBarsCfg
 
 
@@ -502,6 +502,12 @@ class FillCfg(_Model):
     delisting: Literal["close_at_last_trade"]
 
 
+class InstrumentsCfg(_Model):
+    qty_step: Literal["kline_volume_decimals", "none"]
+    min_notional: Annotated[float, Field(ge=0.0)]
+    min_notional_overrides: dict[str, Annotated[float, Field(ge=0.0)]]
+
+
 class BenchmarkCfg(_Model):
     symbol: str
 
@@ -521,6 +527,7 @@ class OutputsCfg(_Model):
 
 class BacktestCfg(_Model):
     fill: FillCfg
+    instruments: InstrumentsCfg
     risk_rules_variants: list[Literal["with_live_rules", "without_live_rules"]] = Field(min_length=1)
     benchmark: BenchmarkCfg
     metrics: MetricsCfg

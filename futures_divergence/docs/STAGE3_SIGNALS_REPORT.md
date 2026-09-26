@@ -3,6 +3,7 @@
 > 작성 2026-09-26. 구간 2025-09-01 ~ 2026-08-31 (UTC, 백테스트 끝 규칙 `last_month_end`), 지표 워밍업 200일.
 > 차트 갤러리(비공개 아티팩트): https://claude.ai/artifact/5Rx7TRidnTGm4K6CwWkJB5 — 신호 315건 개별 차트, 방향·t1 극값 필터.
 > 4단계(백테스트)는 승인 후 진행.
+> 이후 결정: 항목 A 는 "t1~p2 사이 더 낮은 저가 → 구조 폐기" 로 확정, 설정 키는 `structure.discard_on_anchor_break` (기본 true).
 
 ## 1. 구현 내용
 
@@ -25,7 +26,7 @@
 cd futures_divergence
 python -m perpdiv signals --symbol BTCUSDT --months 12          # 약 2분 (차트 315장 포함)
 python -m perpdiv signals --symbol BTCUSDT --no-charts           # CSV·요약만
-python -m perpdiv signals --no-charts --out /tmp/sig --override exp.yaml   # 규칙 비교 (예: strategy: {structure: {anchor_must_be_extreme: true}})
+python -m perpdiv signals --no-charts --out /tmp/sig --override exp.yaml   # 규칙 비교 (예: strategy: {structure: {discard_on_anchor_break: false}})
 python -m pytest tests/test_signals.py
 ```
 

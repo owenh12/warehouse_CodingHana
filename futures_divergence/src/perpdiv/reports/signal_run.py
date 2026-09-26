@@ -23,7 +23,7 @@ from perpdiv.reports.signal_charts import plot_overview, plot_signal
 from perpdiv.signals.divergence import DivergenceDetector, Side, Signal, signals_frame
 
 FUNNEL = ("anchor_pivots", "structures", "swing_set", "swing_replaced", "breakouts", "fail_swing_not_highest",
-          "fail_anchor_not_extreme", "fail_price", "fail_rsi", "fail_gap_min", "passed", "signals", "expired")
+          "discarded_anchor_broken", "fail_price", "fail_rsi", "fail_gap_min", "passed", "signals", "expired")
 
 
 @dataclass(slots=True)
@@ -98,7 +98,7 @@ def run_signal_check(settings: Settings, market: MarketData, *, symbol: str, mon
 
 
 def anchor_is_extreme(bars: pd.DataFrame, signal: Signal) -> bool:
-    """t1 = min Low[t1..p2] (약세 p1 = max High[p1..t2]) 인가 — ``anchor_must_be_extreme`` 옵션의 판정과 같은 기준."""
+    """t1 = min Low[t1..p2] (약세 p1 = max High[p1..t2]) 인가 — ``discard_on_anchor_break`` 규칙과 같은 기준."""
     a, s = signal.anchor_index, signal.swing_index
     if signal.side == "long":
         return bool(bars["low"].iloc[a:s + 1].min() >= signal.anchor_price)
