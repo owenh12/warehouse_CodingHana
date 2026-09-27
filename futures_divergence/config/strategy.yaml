@@ -45,10 +45,11 @@ structure:
 exit:
   evaluation_timeframe: 15m     # 손절·익절·시간 청산 도달 판정 봉 (사용자 결정: 판정만 15분봉)
   stop:
-    atr_mult: 2.5               # Long: 진입가 − ATR×2.5, Short: 진입가 + ATR×2.5. ATR = 신호 TF 의 t3(p3) 값
+    atr_mult: 2.5               # Long: Low(t3) − ATR×2.5, Short: High(p3) + ATR×2.5. ATR = 신호 TF 의 t3(p3) 값
     order_type: stop_market
-    basis: entry_price          # entry_price: 진입가 기준 (전략 수정 후) | signal_bar: Low(t3)/High(p3) 기준 (이전 규칙)
-    min_distance_pct: 0.005     # 진입 조건: 손절폭(ATR×2.5) > 진입가 × 0.5%. 판정 가격 = 신호 봉 종가 (주문 전에 알 수 있는 값)
+    basis: signal_bar           # signal_bar: Low(t3)/High(p3) 기준 (사용자 결정: v1 으로 원복) | entry_price: 진입가 기준 (v2·v3, 비교용)
+    min_distance_pct: 0.0       # 진입 조건: 손절폭 > 진입가 × 이 값 (판정 가격 = 신호 봉 종가). 0 = 조건 없음 (v1 원복)
+                                # v2·v3 에서는 0.005. signal_bar 기준에서도 쓸 수 있다
   take_profit:
     mode: r_multiple            # structure: High(p2)/Low(t2) | r_multiple: 손절폭 × r | trailing: ATR 트레일링
     r_multiple: 2.0

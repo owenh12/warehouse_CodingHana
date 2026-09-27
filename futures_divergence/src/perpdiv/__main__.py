@@ -35,12 +35,16 @@ def summarize(s: Settings) -> str:
         f"피벗 L={st.pivot.left} R={st.pivot.right} ({st.pivot.tie_rule}), RSI {st.rsi.period}, "
         f"강세 <{st.bullish.oversold:g}·약세 >{st.bearish.overbought:g}, 최대 간격 "
         f"{st.structure.gap_bars.max if st.structure.gap_bars.max_enabled else '-'}봉",
-        f"청산: 손절 ATR×{st.exit.stop.atr_mult:g}, 익절 {tp.mode}"
+        f"청산: 손절 {'진입가' if st.exit.stop.basis == 'entry_price' else '신호 봉'} ∓ ATR×{st.exit.stop.atr_mult:g}"
+        + (f" (최소 손절폭 {st.exit.stop.min_distance_pct:.1%})" if st.exit.stop.min_distance_pct > 0 else "")
+        + f", 익절 {tp.mode}"
         + (f" {tp.r_multiple:g}R" if tp.mode == "r_multiple" else "")
         + f", 시간 {st.exit.time_exit.bars}봉(신호 TF), 판정 {st.exit.evaluation_timeframe}",
         f"리스크: 진입 {s.risk.sizing.equity_fraction:.0%}, 동시 {s.risk.positions.max_concurrent}개, 일일손실 "
-        f"{s.risk.daily_loss.threshold:.0%}, MDD 킬스위치 {s.risk.kill_switch.max_drawdown:.0%} "
-        f"({s.risk.kill_switch.on_trip}), API 오류 {s.risk.api_errors.max_consecutive}회",
+        f"{s.risk.daily_loss.threshold:.0%}, MDD 킬스위치 "
+        + (f"{s.risk.kill_switch.max_drawdown:.0%} ({s.risk.kill_switch.on_trip})" if s.risk.kill_switch.enabled
+           else "없음")
+        + f", API 오류 {s.risk.api_errors.max_consecutive}회",
         f"비용: 메이커 {s.costs.fees.maker:.3%}·테이커 {s.costs.fees.taker:.3%}, 슬리피지 "
         f"{s.costs.slippage.taker_pct:.3%}, 펀딩비 {'반영' if s.costs.funding.enabled else '미반영'}",
         f"실행 모드: {s.live.mode}",

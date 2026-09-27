@@ -24,7 +24,8 @@ T0 = pd.Timestamp("2025-01-06 00:00", tz="UTC")  # 월요일 09:00 KST
 Q = pd.Timedelta(minutes=15)
 
 
-# 기존 규칙(단일 TF 진입, 신호 봉 기준 손절, 최소 손절폭 없음)으로 체결 로직을 시험한다. 새 규칙은 아래 별도 테스트.
+# v1 규칙(단일 TF 진입, 신호 봉 기준 손절, 최소 손절폭 없음)으로 체결 로직을 시험한다. 현재 기본값과 같지만 기본값이
+# 바뀌어도 체결 테스트가 흔들리지 않게 명시한다. 다중 TF·진입가 기준 손절(v2·v3 비교용)은 아래 별도 테스트.
 LEGACY: dict[str, Any] = {"strategy": {"confluence": {"enabled": False},
                                        "exit": {"stop": {"basis": "signal_bar", "min_distance_pct": 0.0}}}}
 
@@ -348,26 +349,28 @@ def test_confluence_annotation() -> None:
     assert same_time["confluence"].tolist() == [2, 2]  # 같은 시각 확정도 서로 센다
 
 
-CONFLUENCE_ON: dict[str, Any] = {"strategy": {"confluence": {"enabled": True}}}
+ENTRY_STOP: dict[str, Any] = {"strategy": {"exit": {"stop": {"basis": "entry_price", "min_distance_pct": 0.005}}}}
+CONFLUENCE_ON: dict[str, Any] = deep_merge(ENTRY_STOP, {"strategy": {"confluence": {"enabled": True}}})  # v2 규칙
 
 
 def test_defaults_after_user_decisions() -> None:
     s = load_settings()
     assert not s.strategy.confluence.enabled  # 다중 TF 조건 원복 (TF 독립 진입)
-    assert s.strategy.exit.stop.basis == "entry_price" and s.strategy.exit.stop.min_distance_pct == 0.005
+    assert s.strategy.exit.stop.basis == "signal_bar" and s.strategy.exit.stop.min_distance_pct == 0.0  # v1 손절 원복
+    assert s.risk.sizing.equity_fraction == 1.0  # 진입 규모 100% (사용자 결정)
     assert not s.risk.kill_switch.enabled and s.risk.daily_loss.enabled  # MDD 킬 스위치 제거, 일일 손실 유지
 
 
-def test_default_rules_single_tf_entry_stop_and_no_kill_switch(tmp_path: Path) -> None:
+def test_default_rules_single_tf_signal_bar_stop_and_no_kill_switch(tmp_path: Path) -> None:
     s = settings_with(tmp_path, {"strategy": {"exit": {"stop": {"atr_mult": 50.0}}}}, legacy=False)
     market = FakeMarket()
     rows = [(100, 100.5, 99.5, 100), (90, 90, 60, 65), (66, 70, 64, 68)] + [(68, 69, 67, 68)] * 60
     market.frames["AAAUSDT"] = bars_from(rows)
     market.frames["BBBUSDT"] = bars_from([(100, 100.5, 99.5, 100)] * 63)
-    # 단일 TF 신호로 바로 진입, 손절 = 진입가 − 50 × ATR(1.0), 30%+ 낙폭에도 킬 스위치 없음 → 다음 날(00:00 KST 이후) 신호는 진입
+    # 단일 TF 신호로 바로 진입, 손절 = Low(t3) 99 − 50 × ATR(1.0), 30%+ 낙폭에도 킬 스위치 없음 → 다음 날(00:00 KST 이후) 신호는 진입
     res = run(s, market, [signal(T0, tf="15m"), signal(T0 + pd.Timedelta(hours=15), symbol="BBBUSDT")])
     tr = res.trades.iloc[0]
-    assert tr.stop == pytest.approx(100 * 1.0002 - 50.0)
+    assert tr.stop == pytest.approx(99.0 - 50.0)
     assert res.signals["status"].tolist()[0] == "entered" and "kill_switch" not in [e.kind for e in res.risk_events]
 
 
@@ -411,8 +414,18 @@ def test_time_exit_uses_trigger_timeframe(tmp_path: Path) -> None:
 
 
 def test_min_stop_distance_filter_single_tf(tmp_path: Path) -> None:
-    s = settings_with(tmp_path, legacy=False)  # 기본(TF 독립)에서도 0.5% 조건은 진입 조건
+    s = settings_with(tmp_path, ENTRY_STOP, legacy=False)  # TF 독립 진입 + 진입가 기준 손절 + 0.5% 조건 (v3 규칙)
     market = FakeMarket()
     market.frames["AAAUSDT"] = bars_from([(100, 100.5, 99.5, 100)] * 30)
     res = run(s, market, [signal(T0, atr=0.2), signal(T0 + Q * 20, atr=0.21)])
     assert res.signals["status"].tolist() == ["skipped_stop_too_tight", "entered"]
+
+
+def test_min_stop_distance_filter_with_signal_bar_stop(tmp_path: Path) -> None:
+    s = settings_with(tmp_path, {"strategy": {"exit": {"stop": {"min_distance_pct": 0.005}}}}, legacy=False)
+    market = FakeMarket()
+    market.frames["AAAUSDT"] = bars_from([(100, 100.5, 99.5, 100)] * 30)
+    # 손절폭 = 종가 100 − (Low − 2.5 × 0.2): Low 100 → 0.5 (= 0.5%, 불성립), Low 99.9 → 0.6 → 진입
+    res = run(s, market, [signal(T0, low=100.0, atr=0.2), signal(T0 + Q * 20, low=99.9, atr=0.2)])
+    assert res.signals["status"].tolist() == ["skipped_stop_too_tight", "entered"]
+    assert res.trades.iloc[0].stop == pytest.approx(99.9 - 0.5)
