@@ -8,7 +8,7 @@
 | 1 | 구조·설정 설계 (config/*.yaml 9개, 스키마 검증) | 완료 |
 | 2 | 데이터 확보 점검, 데이터 계층, RSI·ATR·피벗, 단위 테스트 | 완료 ([보고서](docs/STAGE2_DATA_REPORT.md)) |
 | 3 | 신호 생성 + 시각 검증 (BTCUSDT, 최근 12개월, 4개 TF) | 완료 ([보고서](docs/STAGE3_SIGNALS_REPORT.md)) |
-| 4 | 백테스트 (유니버스 560개 코인, 시나리오 10개, BTC 보유 비교) | 완료 ([보고서](docs/STAGE4_BACKTEST_REPORT.md)) |
+| 4 | 백테스트 (유니버스 560개 코인, 시나리오 10개, BTC 보유 비교), 현재 전략 v4 | 완료 ([보고서](docs/STAGE4_BACKTEST_REPORT.md) §7) |
 | 5 | 검증 (그리드/Optuna, walk-forward, 안정성, 몬테카를로) | 승인 대기 |
 | 6~7 | 페이퍼 · 실거래 | — |
 
